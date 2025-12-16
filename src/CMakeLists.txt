@@ -1,0 +1,42 @@
+cmake_minimum_required(VERSION 3.20)
+project(deep_learning_compiler LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
+
+# Set LLVM and MLIR CMake Config
+set(LLVM_DIR "/workspace/llvm-project/build/lib/cmake/llvm" CACHE PATH "Path to LLVMConfig.cmake")
+set(MLIR_DIR "/workspace/llvm-project/build/lib/cmake/mlir" CACHE PATH "Path to MLIRConfig.cmake")
+
+# Find LLVM and MLIR
+find_package(LLVM REQUIRED CONFIG)
+find_package(MLIR REQUIRED CONFIG)
+
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
+message(STATUS "Found MLIR in ${MLIR_DIR}")
+
+include_directories(${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS})
+add_definitions(${LLVM_DEFINITIONS})
+
+list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
+list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
+
+include(TableGen)
+include(AddLLVM)
+include(AddMLIR)
+
+# Add executable
+add_executable(driver driver.cpp)
+
+# Link with MLIR and LLVM Libs
+target_link_libraries(driver
+    PRIVATE
+        MLIRSupport
+        MLIRIR
+        MLIRParser
+        LLVMCore
+        LLVMSupport
+        protobuf
+)
+
+# Add binary dir to includes for generated headers
+target_include_directories(driver PRIVATE ${CMAKE_BINARY_DIR}/include)
