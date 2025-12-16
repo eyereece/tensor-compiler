@@ -1,0 +1,57 @@
+ir_version: 13
+producer_name: "minimal-add"
+graph {
+  node {
+    output: "a_out"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        data_type: 1
+        float_data: 1.0
+        float_data: 2.0
+        name: "a"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    output: "b_out"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        data_type: 1
+        float_data: 3.0
+        float_data: 4.0
+        name: "b"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    input: "a_out"
+    input: "b_out"
+    output: "y"
+    op_type: "Add"
+  }
+  name: "AddConstantGraph"
+  output {
+    name: "y"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+}
+opset_import {
+  version: 25
+}
