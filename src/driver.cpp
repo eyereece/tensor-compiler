@@ -1,4 +1,4 @@
-#include <onnx/onnx_pb.h>
+#include <onnx/onnx.pb.h>
 
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <google/protobuf/text_format.h>
@@ -11,6 +11,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <ostream>
 
 namespace cl = llvm::cl;
 
@@ -49,7 +50,7 @@ loadONNXModel(llvm::StringRef filename) {
         llvm::errs() << "Failed to parse ONNX model\n";
         return nullptr;
     }
-
+    llvm::errs() << "Model has " << model->graph().node_size() << " nodes\n";
     return model;
 }
 
