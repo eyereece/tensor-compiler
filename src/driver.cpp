@@ -1,3 +1,6 @@
+#include "dlc/ModelInfo.h"
+#include "dlc/Parser.h"
+
 #include <onnx/onnx.pb.h>
 
 #include <google/protobuf/io/zero_copy_stream_impl.h>
@@ -54,51 +57,7 @@ loadONNXModel(llvm::StringRef filename) {
     return model;
 }
 
-// Init Dump IR
-// static void dumpPROTO(const onnx::ModelProto &model) {
-//     std::string buffer;
-
-//     // Fill the buffer
-//     if (!model.SerializeToString(&buffer)) {
-//         llvm::errs() << "Failed to serialize ONNX model\n";
-//     return;
-//     }
-
-//     // LLVM-style output: explicit bytes
-//     llvm::outs() << "ONNX binary size = " << buffer.size() << " bytes\n";
-//     llvm::outs().write(buffer.data(), buffer.size());
-//     llvm::outs() << "\n";
-// }
-
 static const char *onnxDataTypeToString(int dt);
-
-void dumpValueInfo(const onnx::ValueInfoProto &v) {
-  llvm::outs() << "  Value: " << v.name() << "\n";
-
-  if (!v.has_type())
-    return;
-
-  const auto &type = v.type();
-  if (!type.has_tensor_type())
-    return;
-
-  const auto &tensor = type.tensor_type();
-
-  // Element type
-  llvm::outs() << "    dtype: "
-               << onnxDataTypeToString(tensor.elem_type()) << "\n";
-
-  // Shape
-  llvm::outs() << "    shape: [ ";
-  for (const auto &dim : tensor.shape().dim()) {
-    if (dim.has_dim_value())
-      llvm::outs() << dim.dim_value() << " ";
-    else
-      llvm::outs() << "? ";
-  }
-  llvm::outs() << "]\n";
-}
-
 
 static const char *onnxDataTypeToString(int dt) {
     switch (dt)
@@ -139,53 +98,102 @@ void dumpTensor(const onnx::TensorProto &t) {
     }
 }
 
+// Dump Value Info
+void dumpValueInfo(const onnx::ValueInfoProto &v) {
+  llvm::outs() << "  Value: " << v.name() << "\n";
+
+  if (!v.has_type())
+    return;
+
+  const auto &type = v.type();
+  if (!type.has_tensor_type())
+    return;
+
+  const auto &tensor = type.tensor_type();
+
+  // Element type
+  llvm::outs() << "    dtype: "
+               << onnxDataTypeToString(tensor.elem_type()) << "\n";
+
+  // Shape
+  llvm::outs() << "    shape: [ ";
+  for (const auto &dim : tensor.shape().dim()) {
+    if (dim.has_dim_value())
+      llvm::outs() << dim.dim_value() << " ";
+    else
+      llvm::outs() << "? ";
+  }
+  llvm::outs() << "]\n";
+}
+
 void dumpPROTO(const onnx::ModelProto &model) {
+    ModelInfo modelInfo = parseModelProto(model);
+
     llvm::outs() << "ONNX Model\n";
-    llvm::outs() << "  IR version: " << model.ir_version() << "\n";
-    llvm::outs() << "  Producer:   " << model.producer_name() << "\n";
+    llvm::outs() << "  IR Version: " << modelInfo.ir_version << "\n";
+    llvm::outs() << "  Producer: " << modelInfo.producer_name << "\n";
 
-    const auto &graph = model.graph();
-    llvm::outs() << "  Graph: " << graph.name() << "\n";
-    llvm::outs() << "  Nodes: " << graph.node_size() << "\n";
+    const GraphInfo &graph = modelInfo.graph;
+    llvm::outs() << "  Graph: " << graph.name << "\n";
+    llvm::outs() << "  Nodes: " << graph.nodes.size() << "\n";
 
-    for (const auto &node : graph.node()) {
-        llvm::outs() << "    Op: " << node.op_type() << "\n";
-        llvm::outs() << "      Inputs: ";
-        for (const auto &in : node.input())
+    for (const NodeInfo &node : graph.nodes) {
+        llvm::outs() << "       Op: " << node.op_type << "\n";
+
+        llvm::outs() << "           Inputs: ";
+        for (const auto &in : node.inputs)
             llvm::outs() << in << " ";
         llvm::outs() << "\n";
 
-        llvm::outs() << "      Outputs: ";
-        for (const auto &out : node.output())
+        llvm::outs() << "           Outputs: ";
+        for (const auto &out : node.outputs)
             llvm::outs() << out << " ";
         llvm::outs() << "\n";
 
         // Attributes
-        for (const auto &attr : node.attribute()) {
-            llvm::outs() << "      Attr: " << attr.name() << "\n";
+        for (const AttributeInfo &attr : node.attributes) {
+            llvm::outs() << "           Attr: " << attr.name << "\n";
+            switch (attr.type) {
+            case AttributeInfo::TENSOR:
+                dumpTensor(attr.tensor);
+                break;
 
-            if (attr.type() == onnx::AttributeProto::TENSOR) {
-                dumpTensor(attr.t());
-            } else if (attr.type() == onnx::AttributeProto::INT) {
-                llvm::outs() << "      Attr int: " << attr.i() << "\n";
-            } else if (attr.type() == onnx::AttributeProto::FLOAT) {
-                llvm::outs() << "      Attr float: " << attr.f() << "\n";
-            } else if (attr.type() == onnx::AttributeProto::STRING) {
-                llvm::outs() << "      Attr string: " << attr.s() << "\n";
-            } else if (attr.type() == onnx::AttributeProto::INTS) {
-                llvm::outs() << "      Attr ints: ";
-                for (auto v : attr.ints()) llvm::outs() << v << " ";
+            case AttributeInfo::INT:
+                llvm::outs() << "               int: " << attr.i << "\n";
+                break;
+
+            case AttributeInfo::FLOAT:
+                llvm::outs() << "               float: " << attr.f << "\n";
+                break;
+
+            case AttributeInfo::STRING:
+                llvm::outs() << "               string: " << attr.s << "\n";
+                break;
+
+            case AttributeInfo::INTS:
+                llvm::outs() << "               ints: ";
+                for (auto v : attr.ints)
+                    llvm::outs() << v << " ";
                 llvm::outs() << "\n";
-            } else if (attr.type() == onnx::AttributeProto::FLOATS) {
-                llvm::outs() << "      Attr floats: ";
-                for (auto v : attr.floats()) llvm::outs() << v << " ";
+                break;
+
+            case AttributeInfo::FLOATS:
+                llvm::outs() << "               floats: ";
+                for (auto v : attr.floats)
+                    llvm::outs() << v << " ";
                 llvm::outs() << "\n";
+                break;
+
+            default:
+                llvm::outs() << "               <unknown attribute>\n";
+                break;
             }
         }
     }
-      // Graph
-    llvm::outs() << "Graph outputs:\n";
-    for (const auto &out : graph.output()) {
+
+    // Graph outputs
+    llvm::outs() << "Graph outputs: \n";
+    for (const auto &out : graph.outputs) {
         dumpValueInfo(out);
     }
 }

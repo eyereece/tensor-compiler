@@ -27,15 +27,27 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 
-# execute_process(
-#   COMMAND /workspace/llvm-project/build/bin/llvm-config --libs core support option remarks bitstreamreader binaryformat targetparser demangle
-#   OUTPUT_VARIABLE LLVM_LIBS
-#   OUTPUT_STRIP_TRAILING_WHITESPACE
-# )
-
-# string(REPLACE " " ";" LLVM_LIBS_LIST ${LLVM_LIBS})
-
 link_directories("/workspace/llvm-project/build/lib")
+
+add_library(dlc INTERFACE)
+
+target_include_directories(dlc INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+add_library(parser STATIC parser/Parser.cpp)
+
+target_include_directories(parser PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${ONNX_INCLUDE_DIR}
+    ${LLVM_INCLUDE_DIRS}
+    ${MLIR_INCLUDE_DIRS}
+)
+
+target_link_libraries(parser
+    PUBLIC
+        protobuf
+)
 
 add_executable(driver driver.cpp ${ONNX_INCLUDE_DIR}/onnx/onnx.pb.cc)
 
@@ -48,6 +60,8 @@ target_include_directories(driver PRIVATE
 
 target_link_libraries(driver
     PRIVATE
+        parser
+        dlc
         LLVM-14
         LLVMOption
         MLIRSupport
