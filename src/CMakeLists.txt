@@ -27,13 +27,13 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 
-execute_process(
-  COMMAND /workspace/llvm-project/build/bin/llvm-config --libs core support option remarks bitstreamreader binaryformat targetparser demangle
-  OUTPUT_VARIABLE LLVM_LIBS
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+# execute_process(
+#   COMMAND /workspace/llvm-project/build/bin/llvm-config --libs core support option remarks bitstreamreader binaryformat targetparser demangle
+#   OUTPUT_VARIABLE LLVM_LIBS
+#   OUTPUT_STRIP_TRAILING_WHITESPACE
+# )
 
-string(REPLACE " " ";" LLVM_LIBS_LIST ${LLVM_LIBS})
+# string(REPLACE " " ";" LLVM_LIBS_LIST ${LLVM_LIBS})
 
 link_directories("/workspace/llvm-project/build/lib")
 
