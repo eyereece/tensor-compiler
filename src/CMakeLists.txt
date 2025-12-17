@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
 # Set LLVM and MLIR CMake Config
 set(LLVM_DIR "/workspace/llvm-project/build/lib/cmake/llvm" CACHE PATH "Path to LLVMConfig.cmake")
 set(MLIR_DIR "/workspace/llvm-project/build/lib/cmake/mlir" CACHE PATH "Path to MLIRConfig.cmake")
+set(ONNX_INCLUDE_DIR "/workspace/onnx/")
+set(ONNX_LIB_DIR "/workspace/onnx/build/")
 
 # Find LLVM and MLIR
 find_package(LLVM REQUIRED CONFIG)
@@ -27,6 +29,18 @@ include(AddMLIR)
 # Add executable
 add_executable(driver driver.cpp)
 
+# Add binary dir to includes for generated headers
+target_include_directories(driver PRIVATE
+    ${CMAKE_BINARY_DIR}/include
+    ${ONNX_INCLUDE_DIR}
+    ${LLVM_INCLUDE_DIRS}
+    ${MLIR_INCLUDE_DIRS}
+)
+
+target_link_directories(driver PRIVATE
+    ${ONNX_LIB_DIR}
+)
+
 # Link with MLIR and LLVM Libs
 target_link_libraries(driver
     PRIVATE
@@ -35,8 +49,10 @@ target_link_libraries(driver
         MLIRParser
         LLVMCore
         LLVMSupport
+        onnx
         protobuf
 )
 
-# Add binary dir to includes for generated headers
-target_include_directories(driver PRIVATE ${CMAKE_BINARY_DIR}/include)
+set_target_properties(driver PROPERTIES
+    BUILD_RPATH "${ONNX_LIB_DIR}"
+)
