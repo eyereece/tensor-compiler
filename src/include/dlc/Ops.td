@@ -43,7 +43,6 @@ def ConstantOp : Dlc_Op<"constant", [Pure]> {
 
     let arguments = (ins ElementsAttr:$value);
     let results = (outs F32Tensor);
-    let hasCustomAssemblyFormat = 1;
     let builders = [
         OpBuilder<(ins "DenseElementsAttr":$value), [{
             build($_builder, $_state, value.getType(), value);
@@ -59,7 +58,6 @@ def AddOp : Dlc_Op<"add"> {
     let summary = "addition operation";
     let arguments = (ins F32Tensor:$lhs, F32Tensor:$rhs);
     let results = (outs F32Tensor);
-    let hasCustomAssemblyFormat = 1;
     let builders = [
         OpBuilder<(ins "Value":$lhs, "Value":$rhs), [{
             build($_builder, $_state, $lhs.getType(), $lhs, $rhs);
