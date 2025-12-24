@@ -7,6 +7,8 @@
 #include <vector>
 #include <cstdint>
 
+namespace dlc {
+
 struct AttributeInfo {
         std::string name;
         enum Type { TENSOR, INT, FLOAT, STRING, INTS, FLOATS, UNKNOWN } type;
@@ -39,5 +41,6 @@ struct ModelInfo {
     std::string producer_name;
     GraphInfo graph;
 };
+}   // namespace dlc
 
 #endif // MODEL_INFO_H

@@ -48,7 +48,6 @@ def ConstantOp : Dlc_Op<"constant", [Pure]> {
             build($_builder, $_state, value.getType(), value);
         }]>
     ];
-    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -60,7 +59,7 @@ def AddOp : Dlc_Op<"add"> {
     let results = (outs F32Tensor);
     let builders = [
         OpBuilder<(ins "Value":$lhs, "Value":$rhs), [{
-            build($_builder, $_state, $lhs.getType(), $lhs, $rhs);
+            build($_builder, $_state, lhs.getType(), lhs, rhs);
         }]>
     ];
 }

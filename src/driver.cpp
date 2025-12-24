@@ -1,5 +1,7 @@
 #include "dlc/ModelInfo.h"
 #include "dlc/Parser.h"
+#include "dlc/MLIRGen.h"
+#include "dlc/Dialect.h"
 
 #include <onnx/onnx.pb.h>
 
@@ -10,6 +12,11 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/AsmState.h"
+#include "mlir/Support/LogicalResult.h"
 
 #include <fstream>
 #include <memory>
@@ -27,7 +34,7 @@ static cl::opt<std::string> inputFilename(
 );
 
 namespace {
-enum Action { None, DumpPROTO };
+enum Action { None, DumpPROTO, DumpMLIR };
 }
 
 static cl::opt<enum Action>
@@ -35,7 +42,8 @@ static cl::opt<enum Action>
                 cl::desc("Select the kind of output desired"),
                 cl::values(
                     clEnumValN(DumpPROTO, "proto",
-                                "output the ONNX protobuf graph")
+                                "output the ONNX protobuf graph"),
+                    clEnumValN(DumpMLIR, "mlir", "output the generated MLIR module")
                 ),
                 cl::init(None));
 
@@ -127,17 +135,17 @@ void dumpValueInfo(const onnx::ValueInfoProto &v) {
 }
 
 void dumpPROTO(const onnx::ModelProto &model) {
-    ModelInfo modelInfo = parseModelProto(model);
+    dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
 
     llvm::outs() << "ONNX Model\n";
     llvm::outs() << "  IR Version: " << modelInfo.ir_version << "\n";
     llvm::outs() << "  Producer: " << modelInfo.producer_name << "\n";
 
-    const GraphInfo &graph = modelInfo.graph;
+    const dlc::GraphInfo &graph = modelInfo.graph;
     llvm::outs() << "  Graph: " << graph.name << "\n";
     llvm::outs() << "  Nodes: " << graph.nodes.size() << "\n";
 
-    for (const NodeInfo &node : graph.nodes) {
+    for (const dlc::NodeInfo &node : graph.nodes) {
         llvm::outs() << "       Op: " << node.op_type << "\n";
 
         llvm::outs() << "           Inputs: ";
@@ -151,33 +159,33 @@ void dumpPROTO(const onnx::ModelProto &model) {
         llvm::outs() << "\n";
 
         // Attributes
-        for (const AttributeInfo &attr : node.attributes) {
+        for (const dlc::AttributeInfo &attr : node.attributes) {
             llvm::outs() << "           Attr: " << attr.name << "\n";
             switch (attr.type) {
-            case AttributeInfo::TENSOR:
+            case dlc::AttributeInfo::TENSOR:
                 dumpTensor(attr.tensor);
                 break;
 
-            case AttributeInfo::INT:
+            case dlc::AttributeInfo::INT:
                 llvm::outs() << "               int: " << attr.i << "\n";
                 break;
 
-            case AttributeInfo::FLOAT:
+            case dlc::AttributeInfo::FLOAT:
                 llvm::outs() << "               float: " << attr.f << "\n";
                 break;
 
-            case AttributeInfo::STRING:
+            case dlc::AttributeInfo::STRING:
                 llvm::outs() << "               string: " << attr.s << "\n";
                 break;
 
-            case AttributeInfo::INTS:
+            case dlc::AttributeInfo::INTS:
                 llvm::outs() << "               ints: ";
                 for (auto v : attr.ints)
                     llvm::outs() << v << " ";
                 llvm::outs() << "\n";
                 break;
 
-            case AttributeInfo::FLOATS:
+            case dlc::AttributeInfo::FLOATS:
                 llvm::outs() << "               floats: ";
                 for (auto v : attr.floats)
                     llvm::outs() << v << " ";
@@ -198,6 +206,28 @@ void dumpPROTO(const onnx::ModelProto &model) {
     }
 }
 
+static int dumpMLIRModule(const onnx::ModelProto &model) {
+    // Parse ONNX into ModelInfo
+    dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
+
+    mlir::MLIRContext context;
+
+    // Register the dlc dialect in MLIR context
+    context.getOrLoadDialect<mlir::dlc::DlcDialect>();
+
+    // Generate MLIR module
+    auto module = dlc::mlirGen(context, modelInfo);
+    if (!module) {
+        llvm::errs() << "Failed to generate MLIR module\n";
+        return 1;
+    }
+
+    // Print MLIR module to stdout
+    module->print(llvm::outs());
+    llvm::outs() << "\n";
+    return 0;
+}
+
 
 // MAIN
 int main(int argc, char **argv) {
@@ -211,6 +241,9 @@ int main(int argc, char **argv) {
     case DumpPROTO:
         dumpPROTO(*model);
         return 0;
+    case DumpMLIR:
+        dumpMLIR:
+        return dumpMLIRModule(*model);
     default:
         llvm::errs()
             << "No action specified, use -emit=proto\n";

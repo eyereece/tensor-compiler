@@ -8,6 +8,8 @@ namespace onnx {
 class ModelProto;
 }
 
-ModelInfo parseModelProto(const onnx::ModelProto &model);
+namespace dlc {
+    ModelInfo parseModelProto(const onnx::ModelProto &model);
+}   // namespace dlc
 
 #endif // PARSER_H

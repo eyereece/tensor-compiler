@@ -3,6 +3,8 @@
 
 #include <onnx/onnx.pb.h>
 
+namespace dlc {
+
 static AttributeInfo parseAttribute(const onnx::AttributeProto &attr) {
     AttributeInfo info;
     info.name = attr.name();
@@ -77,3 +79,5 @@ ModelInfo parseModelProto(const onnx::ModelProto &model) {
     info.graph = parseGraph(model.graph());
     return info;
 }
+
+}   // namespace dlc
