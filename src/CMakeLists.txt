@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(deep_learning_compiler LANGUAGES CXX)
+project(deep_learning_compiler C CXX)
 
 if(LLVM_ENABLE_RTTI)
   # LLVM was built with RTTI, do nothing
@@ -112,6 +112,7 @@ target_link_libraries(dlc_dialect
     PRIVATE
     MLIRIR
     MLIRSupport
+    MLIRFuncDialect
     LLVMCore
 )
 
@@ -131,6 +132,8 @@ target_include_directories(driver PRIVATE
     ${MLIR_INCLUDE_DIRS}
 )
 
+link_directories(/workspace/llvm-project/build/lib)
+
 target_link_libraries(driver
     PRIVATE
         parser
@@ -143,9 +146,11 @@ target_link_libraries(driver
         MLIRControlFlowInterfaces
         MLIRInferTypeOpInterface
         MLIRSideEffectInterfaces
-        LLVM-14
         LLVMSupport
         LLVMCore
+        LLVMBinaryFormat
+        LLVMRemarks
+        LLVMBitstreamReader
         protobuf
 )
 message(STATUS "LLVM libs: ${LLVM_LIBS_LIST}")
@@ -160,6 +165,11 @@ message(STATUS "LLVM libs: ${LLVM_LIBS_LIST}")
 #     mlir/MLIRGen.cpp
 # )
 
-set_target_properties(driver PROPERTIES
-    BUILD_RPATH "/workspace/llvm-project/build/lib"
+# set_target_properties(driver PROPERTIES
+#     BUILD_RPATH "/workspace/llvm-project/build/lib"
+# )
+
+set_target_properties(driver PROPERTIES 
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "/workspace/llvm-project/build/lib"
 )

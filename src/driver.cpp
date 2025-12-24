@@ -206,14 +206,9 @@ void dumpPROTO(const onnx::ModelProto &model) {
     }
 }
 
-static int dumpMLIRModule(const onnx::ModelProto &model) {
+static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &model) {
     // Parse ONNX into ModelInfo
     dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
-
-    mlir::MLIRContext context;
-
-    // Register the dlc dialect in MLIR context
-    context.getOrLoadDialect<mlir::dlc::DlcDialect>();
 
     // Generate MLIR module
     auto module = dlc::mlirGen(context, modelInfo);
@@ -232,6 +227,8 @@ static int dumpMLIRModule(const onnx::ModelProto &model) {
 // MAIN
 int main(int argc, char **argv) {
     cl::ParseCommandLineOptions(argc, argv, "deep learning compiler\n");
+    mlir::MLIRContext context;
+    context.getOrLoadDialect<mlir::dlc::DlcDialect>();
 
     auto model = loadONNXModel(inputFilename);
     if (!model)
@@ -243,7 +240,7 @@ int main(int argc, char **argv) {
         return 0;
     case DumpMLIR:
         dumpMLIR:
-        return dumpMLIRModule(*model);
+        return dumpMLIRModule(context, *model);
     default:
         llvm::errs()
             << "No action specified, use -emit=proto\n";
