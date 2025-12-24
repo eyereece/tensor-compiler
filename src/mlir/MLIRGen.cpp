@@ -41,7 +41,7 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     module.push_back(func);
     // END TEST
 
-    // Value table: ONNX name -> MLIR value
+    // Initialize Value table: ONNX name -> MLIR value
     llvm::StringMap<mlir::Value> valueMap;
 
     // Walk nodes
@@ -140,9 +140,24 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
         }
     }
 
-    // TEST
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
-    // END TEST
+    // Handle return values after the loop is done
+    SmallVector<mlir::Value, 4> returnValues;
+    SmallVector<mlir::Type, 4> returnTypes;
+
+    for (const auto &outputProto : model.graph.outputs) {
+        std::string outputName = outputProto.name();
+        if (valueMap.count(outputName)) {
+            mlir::Value val = valueMap[outputName];
+            returnValues.push_back(val);
+            returnTypes.push_back(val.getType());
+        } else {
+            llvm::errs() << "Error: Graph output '" << outputName << "' not found!\n";
+            return nullptr;
+        }
+    }
+    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), returnValues);
+
+    func.setType(builder.getFunctionType({}, returnTypes));
 
     // Verify module
 
