@@ -41,13 +41,15 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     mlir::OpBuilder builder(&context);
 
     // Create main function
-    auto func = builder.create<func::FuncOp>(
+    auto func = func::FuncOp::create(
         builder.getUnknownLoc(), "main", builder.getFunctionType({}, {})
     );
 
     Block *entry = func.addEntryBlock();
     builder.setInsertionPointToStart(entry);
     module.push_back(func);
+
+    mlir::ImplicitLocOpBuilder b(builder.getUnknownLoc(), builder);
 
     // Initialize Value table: ONNX name -> MLIR value
     llvm::StringMap<mlir::Value> valueMap;
@@ -68,10 +70,7 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
                 type,
                 llvm::ArrayRef<char>(tensor.rawData.data(), tensor.rawData.size())
             );
-
-            auto constOp =
-                builder.create<ConstantOp>(builder.getUnknownLoc(), denseAttr);
-
+            auto constOp = b.create<ConstantOp>(type, denseAttr);
             valueMap[node.outputs[0]] = constOp.getResult();
         }
 
@@ -83,10 +82,7 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
                 llvm::errs() << "Error: Add inputs not found for " << node.outputs[0] << "\n";
                 return nullptr;
             }
-
-            auto addOp =
-                builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs);
-
+            auto addOp = b.create<AddOp>(lhs, rhs);
             valueMap[node.outputs[0]] = addOp.getResult();
         }
 
@@ -110,7 +106,7 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
             return nullptr;
         }
     }
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), returnValues);
+    b.create<func::ReturnOp>(returnValues);
     func.setType(builder.getFunctionType({}, returnTypes));
 
     // Verify module
