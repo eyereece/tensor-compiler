@@ -1,7 +1,7 @@
 #include "dlc/ModelInfo.h"
 #include "dlc/Parser.h"
-#include "dlc/MLIRGen.h"
-#include "dlc/Dialect.h"
+// #include "dlc/MLIRGen.h"
+// #include "dlc/Dialect.h"
 
 #include <onnx/onnx.pb.h>
 
@@ -12,6 +12,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Format.h"
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -47,7 +48,7 @@ static cl::opt<enum Action>
                 ),
                 cl::init(None));
 
-// ONNX Loading
+
 static std::unique_ptr<onnx::ModelProto>
 loadONNXModel(llvm::StringRef filename) {
     std::ifstream input(filename.str(), std::ios::binary);
@@ -65,73 +66,50 @@ loadONNXModel(llvm::StringRef filename) {
     return model;
 }
 
-static const char *onnxDataTypeToString(int dt);
 
-static const char *onnxDataTypeToString(int dt) {
-    switch (dt)
-    {
-    case onnx::TensorProto::FLOAT: return "float32";
-    case onnx::TensorProto::DOUBLE: return "float64";
-    case onnx::TensorProto::INT64: return "int64";
-    case onnx::TensorProto::INT32: return "int32";
-    default: return "unknown";
-    }
-}
+void dumpTensor(const dlc::TensorInfo &t) {
+    llvm::outs() << "        Tensor Info\n";
 
-// Dump tensor values
-void dumpTensor(const onnx::TensorProto &t) {
-    llvm::outs() << "        Tensor\n";
-
-    // Shape
+    // 1. Shape
     llvm::outs() << "        shape: [ ";
-    for (auto d : t.dims())
-        llvm::outs() << d << " ";
+    if (t.shape.empty()) {
+        llvm::outs() << "<scalar> ";
+    } else {
+        for (auto d : t.shape)
+            llvm::outs() << d << " ";
+    }
     llvm::outs() << "]\n";
 
-    // Data type
-    llvm::outs() << "        dtype: "
-                 << onnxDataTypeToString(t.data_type()) << "\n";
-
-    // Values (handle common cases)
-    if (t.data_type() == onnx::TensorProto::FLOAT) {
-        llvm::outs() << "        values: ";
-        for (float v : t.float_data())
-            llvm::outs() << v << " ";
-        llvm::outs() << "\n";
-    } else if (t.data_type() == onnx::TensorProto::INT64) {
-        llvm::outs() << "        values: ";
-        for (auto v : t.int64_data())
-            llvm::outs() << v << " ";
-        llvm::outs() << "\n";
+    // 2. Data type
+    llvm::outs() << "        dtype: ";
+    switch (t.elementType) {
+        case dlc::TensorInfo::DataType::FLOAT: llvm::outs() << "float32"; break;
+        case dlc::TensorInfo::DataType::INT64: llvm::outs() << "int64"; break;
+        case dlc::TensorInfo::DataType::INT32: llvm::outs() << "int32"; break;
+        default: llvm::outs() << "unknown"; break;
     }
+    llvm::outs() << "\n";
+
+    // 3. Raw Data Hex Dump
+    llvm::outs() << "        raw_bytes (hex): ";
+    for (size_t i = 0; i < t.rawData.size(); ++i) {
+        // Print as 2-digit hex
+        unsigned char byte = static_cast<unsigned char>(t.rawData[i]);
+        llvm::outs() << llvm::format_hex_no_prefix(byte, 2) << " ";
+        // Limit output for massive tensors
+        if (i > 16) {
+            llvm::outs() << "...";
+            break;
+        }
+    }
+    llvm::outs() << " (" << t.rawData.size() << " bytes)\n";
 }
 
-// Dump Value Info
-void dumpValueInfo(const onnx::ValueInfoProto &v) {
-  llvm::outs() << "  Value: " << v.name() << "\n";
-
-  if (!v.has_type())
-    return;
-
-  const auto &type = v.type();
-  if (!type.has_tensor_type())
-    return;
-
-  const auto &tensor = type.tensor_type();
-
-  // Element type
-  llvm::outs() << "    dtype: "
-               << onnxDataTypeToString(tensor.elem_type()) << "\n";
-
-  // Shape
-  llvm::outs() << "    shape: [ ";
-  for (const auto &dim : tensor.shape().dim()) {
-    if (dim.has_dim_value())
-      llvm::outs() << dim.dim_value() << " ";
-    else
-      llvm::outs() << "? ";
-  }
-  llvm::outs() << "]\n";
+void dumpValueInfo(const dlc::ValueInfo &v) {
+    llvm::outs() << "   Value: " << v.name << "\n";
+    llvm::outs() << "       shape: [";
+    for (auto d : v.shape) llvm::outs() << (d == -1 ? "?" : std::to_string(d)) << "";
+    llvm::outs() << "]\n";
 }
 
 void dumpPROTO(const onnx::ModelProto &model) {
@@ -206,29 +184,29 @@ void dumpPROTO(const onnx::ModelProto &model) {
     }
 }
 
-static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &model) {
-    // Parse ONNX into ModelInfo
-    dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
+// static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &model) {
+//     // Parse ONNX into ModelInfo
+//     dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
 
-    // Generate MLIR module
-    auto module = dlc::mlirGen(context, modelInfo);
-    if (!module) {
-        llvm::errs() << "Failed to generate MLIR module\n";
-        return 1;
-    }
+//     // Generate MLIR module
+//     auto module = dlc::mlirGen(context, modelInfo);
+//     if (!module) {
+//         llvm::errs() << "Failed to generate MLIR module\n";
+//         return 1;
+//     }
 
-    // Print MLIR module to stdout
-    module->print(llvm::outs());
-    llvm::outs() << "\n";
-    return 0;
-}
+//     // Print MLIR module to stdout
+//     module->print(llvm::outs());
+//     llvm::outs() << "\n";
+//     return 0;
+// }
 
 
 // MAIN
 int main(int argc, char **argv) {
     cl::ParseCommandLineOptions(argc, argv, "deep learning compiler\n");
-    mlir::MLIRContext context;
-    context.getOrLoadDialect<mlir::dlc::DlcDialect>();
+    // mlir::MLIRContext context;
+    // context.getOrLoadDialect<mlir::dlc::DlcDialect>();
 
     auto model = loadONNXModel(inputFilename);
     if (!model)
@@ -239,8 +217,9 @@ int main(int argc, char **argv) {
         dumpPROTO(*model);
         return 0;
     case DumpMLIR:
-        dumpMLIR:
-        return dumpMLIRModule(context, *model);
+        llvm::errs() << "MLIR generation is currently disabled while refactoring ModelInfo.\n";
+        return 1;
+        // return dumpMLIRModule(context, *model);
     default:
         llvm::errs()
             << "No action specified, use -emit=proto\n";

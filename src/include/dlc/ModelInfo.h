@@ -9,12 +9,30 @@
 
 namespace dlc {
 
+struct TensorInfo {
+    std::string name;
+    enum class DataType { FLOAT, INT64, INT32, BOOL, UINT8, UNKNOWN };
+    std::vector<int64_t> shape;
+    DataType elementType;
+    std::vector<char> rawData;
+
+    bool isScalar() const {
+        return shape.empty() || (shape.size() == 1 && shape[0] == 1);
+    };
+};
+
+struct ValueInfo {
+    std::string name;
+    std::vector<int64_t> shape;
+    TensorInfo::DataType elementType;
+};
+
 struct AttributeInfo {
         std::string name;
         enum Type { TENSOR, INT, FLOAT, STRING, INTS, FLOATS, UNKNOWN } type;
 
         // union-like storage for values
-        onnx::TensorProto tensor;
+        TensorInfo tensor;
         int64_t i;
         float f;
         std::string s;
@@ -32,8 +50,8 @@ struct NodeInfo {
 struct GraphInfo {
         std::string name;
         std::vector<NodeInfo> nodes;
-        std::vector<onnx::ValueInfoProto> inputs;
-        std::vector<onnx::ValueInfoProto> outputs;
+        std::vector<ValueInfo> inputs;
+        std::vector<ValueInfo> outputs;
 };
 
 struct ModelInfo {
