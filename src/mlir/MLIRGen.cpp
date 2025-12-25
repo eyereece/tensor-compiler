@@ -17,6 +17,17 @@ using namespace mlir::dlc;
 using namespace ::dlc;
 
 namespace dlc {
+
+// Helper to convert internal Enum to MLIR Type
+static mlir::Type getMlirType(mlir::OpBuilder &builder, TensorInfo::DataType type) {
+    switch (type) {
+        case TensorInfo::DataType::FLOAT: return builder.getF32Type();
+        case TensorInfo::DataType::INT32: return builder.getI32Type();
+        case TensorInfo::DataType::INT64: return builder.getI64Type();
+        default: return builder.getNoneType();
+    }
+}
+
 mlir::OwningOpRef<mlir::ModuleOp>
 mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     // Register Dialect
@@ -29,84 +40,39 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     // Builder
     mlir::OpBuilder builder(&context);
 
-    // TEST
-    auto funcType = builder.getFunctionType({}, {});
+    // Create main function
     auto func = builder.create<func::FuncOp>(
-        builder.getUnknownLoc(), "main", funcType
+        builder.getUnknownLoc(), "main", builder.getFunctionType({}, {})
     );
 
     Block *entry = func.addEntryBlock();
     builder.setInsertionPointToStart(entry);
-
     module.push_back(func);
-    // END TEST
 
     // Initialize Value table: ONNX name -> MLIR value
     llvm::StringMap<mlir::Value> valueMap;
 
     // Walk nodes
     for (const NodeInfo &node : model.graph.nodes) {
-        // TEST
-        llvm::errs() << "Node op_type: " << node.op_type << "\n";
-        llvm::errs() << "Inputs: ";
-        for (auto &in : node.inputs)
-            llvm::errs() << in << " ";
-        llvm::errs() << "\nOutputs: ";
-        for (auto &out : node.outputs)
-            llvm::errs() << out << " ";
-        llvm::errs() << "\n";
-        assert(!node.outputs.empty() && "Node outputs cannot be empty");
-
-        // END TEST
         if (node.op_type == "Constant") {
             // Expect one attribute: value
             const AttributeInfo &attr = node.attributes[0];
-            assert(attr.type == AttributeInfo::TENSOR);
+            const TensorInfo &tensor = attr.tensor;
 
-            // TEST
-            // Print shape and data size
-            llvm::errs() << "Constant tensor shape: ";
-            for (auto d : attr.tensor.dims())
-                llvm::errs() << d << " ";
-            llvm::errs() << "\nFloat data size: " << attr.tensor.float_data().size() << "\n";
+            // Setup Type using clean shape vector and enum
+            auto elementType = getMlirType(builder, tensor.elementType);
+            auto type = RankedTensorType::get(tensor.shape, elementType);
 
-            // END TEST
-            
-            // Build tensor type
-            SmallVector<int64_t> shape;
-            for (auto d : attr.tensor.dims())
-                shape.push_back(d);
-
-            // TEST
-            // Check shape matches data size
-            int64_t expected_size = 1;
-            for (auto d : shape)
-                expected_size *= d;
-            if (expected_size != (int64_t)attr.tensor.float_data().size()) {
-                llvm::errs() << "Error: Tensor shape does not match data size\n";
-                return nullptr;
-            }
-
-            // END TEST
-
-            auto type = RankedTensorType::get(
-                shape, builder.getF32Type()
-            );
-
-            // Convert Protobug RepeatedField to llvm::ArrayRef
-            auto data = attr.tensor.float_data();
-            auto denseAttr = DenseElementsAttr::get(type,
-                                        llvm::ArrayRef<float>(data.data(), data.size())
+            // Use the raw buffer
+            auto denseAttr = DenseElementsAttr::getFromRawBuffer(
+                type,
+                llvm::ArrayRef<char>(tensor.rawData.data(), tensor.rawData.size())
             );
 
             auto constOp =
                 builder.create<ConstantOp>(builder.getUnknownLoc(), denseAttr);
 
             valueMap[node.outputs[0]] = constOp.getResult();
-
-            // TEST
-            llvm::errs() << "Inserted value for output: " << node.outputs[0] << " with type: " << valueMap[node.outputs[0]].getType() << "\n";
-            // END TEST
         }
 
         else if (node.op_type == "Add") {
@@ -114,24 +80,14 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
             auto rhs = valueMap.lookup(node.inputs[1]);
 
             if (!lhs || !rhs) {
-                llvm::errs() << "Error: Add inputs not found in valueMap for " << node.outputs[0] << "\n";
+                llvm::errs() << "Error: Add inputs not found for " << node.outputs[0] << "\n";
                 return nullptr;
             }
-
-            // TEST
-            llvm::errs() << "AddOp lhs type: " << lhs.getType() << "\n";
-            llvm::errs() << "AddOp rhs type: " << rhs.getType() << "\n";
-
-            // END TEST
 
             auto addOp =
                 builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs);
 
             valueMap[node.outputs[0]] = addOp.getResult();
-
-            // TEST
-            llvm::errs() << "Inserted value for output: " << node.outputs[0] << " with type: " << valueMap[node.outputs[0]].getType() << "\n";
-            // END TEST
         }
 
         else {
@@ -144,36 +100,24 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     SmallVector<mlir::Value, 4> returnValues;
     SmallVector<mlir::Type, 4> returnTypes;
 
-    for (const auto &outputProto : model.graph.outputs) {
-        std::string outputName = outputProto.name();
-        if (valueMap.count(outputName)) {
-            mlir::Value val = valueMap[outputName];
+    for (const auto &outputInfo : model.graph.outputs) {
+        if (valueMap.count(outputInfo.name)) {
+            mlir::Value val = valueMap[outputInfo.name];
             returnValues.push_back(val);
             returnTypes.push_back(val.getType());
         } else {
-            llvm::errs() << "Error: Graph output '" << outputName << "' not found!\n";
+            llvm::errs() << "Error: Graph output '" << outputInfo.name << "' not found!\n";
             return nullptr;
         }
     }
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), returnValues);
-
     func.setType(builder.getFunctionType({}, returnTypes));
 
     // Verify module
-
-    // TEST
-    llvm::errs() << "Before verification\n";
-    // END TEST
-
     if (failed(mlir::verify(module))) {
         llvm::errs() << "MLIR verification failed\n";
         return nullptr;
     }
-
-    // TEST
-    llvm::errs() << "After verification\n";
-    // END TEST
-
     return module;
 }
 }   // namespace dlc

@@ -1,7 +1,7 @@
 #include "dlc/ModelInfo.h"
 #include "dlc/Parser.h"
-// #include "dlc/MLIRGen.h"
-// #include "dlc/Dialect.h"
+#include "dlc/MLIRGen.h"
+#include "dlc/Dialect.h"
 
 #include <onnx/onnx.pb.h>
 
@@ -184,29 +184,29 @@ void dumpPROTO(const onnx::ModelProto &model) {
     }
 }
 
-// static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &model) {
-//     // Parse ONNX into ModelInfo
-//     dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
+static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &model) {
+    // Parse ONNX into ModelInfo
+    dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
 
-//     // Generate MLIR module
-//     auto module = dlc::mlirGen(context, modelInfo);
-//     if (!module) {
-//         llvm::errs() << "Failed to generate MLIR module\n";
-//         return 1;
-//     }
+    // Generate MLIR module
+    auto module = dlc::mlirGen(context, modelInfo);
+    if (!module) {
+        llvm::errs() << "Failed to generate MLIR module\n";
+        return 1;
+    }
 
-//     // Print MLIR module to stdout
-//     module->print(llvm::outs());
-//     llvm::outs() << "\n";
-//     return 0;
-// }
+    // Print MLIR module to stdout
+    module->print(llvm::outs());
+    llvm::outs() << "\n";
+    return 0;
+}
 
 
 // MAIN
 int main(int argc, char **argv) {
     cl::ParseCommandLineOptions(argc, argv, "deep learning compiler\n");
-    // mlir::MLIRContext context;
-    // context.getOrLoadDialect<mlir::dlc::DlcDialect>();
+    mlir::MLIRContext context;
+    context.getOrLoadDialect<mlir::dlc::DlcDialect>();
 
     auto model = loadONNXModel(inputFilename);
     if (!model)
@@ -217,9 +217,7 @@ int main(int argc, char **argv) {
         dumpPROTO(*model);
         return 0;
     case DumpMLIR:
-        llvm::errs() << "MLIR generation is currently disabled while refactoring ModelInfo.\n";
-        return 1;
-        // return dumpMLIRModule(context, *model);
+        return dumpMLIRModule(context, *model);
     default:
         llvm::errs()
             << "No action specified, use -emit=proto\n";

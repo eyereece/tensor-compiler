@@ -1,76 +1,101 @@
 cmake_minimum_required(VERSION 3.20)
-project(deep_learning_compiler LANGUAGES CXX)
+project(deep_learning_compiler C CXX)
 
-set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
+if(NOT LLVM_ENABLE_RTTI)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+endif()
 
+# --- 1. Hardcoded Paths ---
 set(LLVM_DIR "/workspace/llvm-project/build/lib/cmake/llvm" CACHE PATH "Path to LLVMConfig.cmake")
 set(MLIR_DIR "/workspace/llvm-project/build/lib/cmake/mlir" CACHE PATH "Path to MLIRConfig.cmake")
 set(ONNX_INCLUDE_DIR "/workspace/onnx")
 
-list(APPEND CMAKE_PREFIX_PATH "${LLVM_DIR}")
-list(APPEND CMAKE_PREFIX_PATH "${MLIR_DIR}")
+# --- 2. LLVM & MLIR Configuration ---
+list(APPEND CMAKE_PREFIX_PATH "${LLVM_DIR}" "${MLIR_DIR}")
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
 find_package(Protobuf REQUIRED)
 
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
-message(STATUS "Found MLIR in ${MLIR_DIR}")
-
-include_directories(${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
-
-list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
-list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
+list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}" "${MLIR_CMAKE_DIR}")
 
 include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 
-link_directories("/workspace/llvm-project/build/lib")
+# Standard MLIR include directories
+include_directories(${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS} ${ONNX_INCLUDE_DIR})
+add_definitions(${LLVM_DEFINITIONS})
 
-add_library(dlc INTERFACE)
+# --- 3. TableGen (Dialect & Ops Generation) ---
+set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/include/dlc/Ops.td)
+set(DLC_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/include/dlc)
+file(MAKE_DIRECTORY ${DLC_GEN_DIR})
 
-target_include_directories(dlc INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+# Clear the list to ensure no stale entries
+set(TABLEGEN_OUTPUT "")
 
+# Generate Dialect Declarations
+mlir_tablegen(include/dlc/Dialect.h.inc -gen-dialect-decls -dialect=dlc)
+list(APPEND TABLEGEN_OUTPUT ${DLC_GEN_DIR}/Dialect.h.inc)
+
+# Generate Dialect Definitions
+mlir_tablegen(include/dlc/Dialect.cpp.inc -gen-dialect-defs -dialect=dlc)
+list(APPEND TABLEGEN_OUTPUT ${DLC_GEN_DIR}/Dialect.cpp.inc)
+
+# Generate Op Declarations
+mlir_tablegen(include/dlc/Ops.h.inc -gen-op-decls)
+list(APPEND TABLEGEN_OUTPUT ${DLC_GEN_DIR}/Ops.h.inc)
+
+# Generate Op Definitions
+mlir_tablegen(include/dlc/Ops.cpp.inc -gen-op-defs)
+list(APPEND TABLEGEN_OUTPUT ${DLC_GEN_DIR}/Ops.cpp.inc)
+
+add_public_tablegen_target(DLC_OPS_GEN)
+
+# --- 4. Targets ---
+
+# A. Parser Library
 add_library(parser STATIC parser/Parser.cpp)
+target_include_directories(parser PUBLIC include)
+target_link_libraries(parser PUBLIC protobuf)
 
-target_include_directories(parser PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${ONNX_INCLUDE_DIR}
-    ${LLVM_INCLUDE_DIRS}
-    ${MLIR_INCLUDE_DIRS}
+# B. Dialect & MLIR Logic Library
+add_library(dlc_dialect STATIC
+    mlir/Dialect.cpp
+    mlir/MLIRGen.cpp
+)
+add_dependencies(dlc_dialect DLC_OPS_GEN)
+target_include_directories(dlc_dialect PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
+
+# C. Main Driver
+add_executable(driver 
+    driver.cpp 
+    ${ONNX_INCLUDE_DIR}/onnx/onnx.pb.cc
 )
 
-target_link_libraries(parser
-    PUBLIC
-        protobuf
-)
-
-add_executable(driver driver.cpp ${ONNX_INCLUDE_DIR}/onnx/onnx.pb.cc)
-
-target_include_directories(driver PRIVATE
-    ${CMAKE_BINARY_DIR}/include
-    ${ONNX_INCLUDE_DIR}
-    ${LLVM_INCLUDE_DIRS}
-    ${MLIR_INCLUDE_DIRS}
-)
-
+# Use target_link_libraries to handle dependencies and propagation
 target_link_libraries(driver
     PRIVATE
         parser
-        dlc
-        LLVM-14
-        LLVMOption
-        MLIRSupport
+        dlc_dialect
+        # MLIR Libraries
         MLIRIR
         MLIRParser
-        protobuf
+        MLIRBytecodeReader
+        MLIRAsmParser
+        MLIRSupport
+        MLIRFuncDialect
+        MLIRControlFlowInterfaces
+        MLIRInferTypeOpInterface
+        MLIRSideEffectInterfaces
+        # LLVM Libraries
+        LLVMSupport
+        LLVMCore
 )
-message(STATUS "LLVM libs: ${LLVM_LIBS_LIST}")
 
-set_target_properties(driver PROPERTIES
-    BUILD_RPATH "/workspace/llvm-project/build/lib"
+# --- 5. RPATH Configuration (So it finds LLVM .so files) ---
+set_target_properties(driver PROPERTIES 
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "/workspace/llvm-project/build/lib"
 )
