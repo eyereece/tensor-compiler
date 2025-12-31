@@ -2,6 +2,7 @@
 #include "dlc/Parser.h"
 #include "dlc/MLIRGen.h"
 #include "dlc/Dialect.h"
+#include "dlc/Passes.h"
 
 #include <onnx/onnx.pb.h>
 
@@ -14,6 +15,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/Passes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/AsmState.h"
@@ -35,7 +38,7 @@ static cl::opt<std::string> inputFilename(
 );
 
 namespace {
-enum Action { None, DumpPROTO, DumpMLIR };
+enum Action { None, DumpPROTO, DumpMLIR, DumpMLIRTensor };
 }
 
 static cl::opt<enum Action>
@@ -44,7 +47,9 @@ static cl::opt<enum Action>
                 cl::values(
                     clEnumValN(DumpPROTO, "proto",
                                 "output the ONNX protobuf graph"),
-                    clEnumValN(DumpMLIR, "mlir", "output the generated MLIR module")
+                    clEnumValN(DumpMLIR, "mlir", "output the generated MLIR module"),
+                    clEnumValN(DumpMLIRTensor, "mlir-tensor",
+                                "output the MLIR dump after tensor lowering")
                 ),
                 cl::init(None));
 
@@ -195,6 +200,22 @@ static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &mo
         return 1;
     }
 
+    // If the action is DumpMLIRTensor, run the lowering pass
+    if (emitAction == DumpMLIRTensor) {
+        mlir::PassManager pm (&context);
+
+        // Add the custom lowering pass
+        pm.addPass(mlir::dlc::createLowerToTensorPass());
+
+        // Standard cleanup pass to remove any unused logic after conversion
+        pm.addPass(mlir::createCanonicalizerPass());
+
+        if (mlir::failed(pm.run(*module))) {
+            llvm::errs() << "Lowering to Tensor dialect failed \n";
+            return 1;
+        }
+    }
+
     // Print MLIR module to stdout
     module->print(llvm::outs());
     llvm::outs() << "\n";
@@ -217,6 +238,7 @@ int main(int argc, char **argv) {
         dumpPROTO(*model);
         return 0;
     case DumpMLIR:
+    case DumpMLIRTensor:
         return dumpMLIRModule(context, *model);
     default:
         llvm::errs()

@@ -64,6 +64,7 @@ target_link_libraries(parser PUBLIC protobuf)
 add_library(dlc_dialect STATIC
     mlir/Dialect.cpp
     mlir/MLIRGen.cpp
+    mlir/LowerToTensor.cpp
 )
 add_dependencies(dlc_dialect DLC_OPS_GEN)
 target_include_directories(dlc_dialect PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -80,6 +81,13 @@ target_link_libraries(driver
         parser
         dlc_dialect
         # MLIR Libraries
+        # Dialects
+        MLIRPass
+        MLIRTransforms
+        MLIRLinalgDialect
+        MLIRTensorDialect
+        MLIRArithDialect
+        # MLIRGen
         MLIRIR
         MLIRParser
         MLIRBytecodeReader
