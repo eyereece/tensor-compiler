@@ -22,7 +22,8 @@ struct ConstantOpLowering : public OpConversionPattern<dlc::ConstantOp> {
                                 ConversionPatternRewriter &rewriter) const final {
         // Direcly replace dlc.constant with arith.constant
         // Both use DenseElementsAttr, so this is a 1-to-1 mapping
-        rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, op.getValue());
+        auto newOp = arith::ConstantOp::create(rewriter, op.getLoc(), op.getValue());
+        rewriter.replaceOp(op, newOp);
         return success();
     }
 };
