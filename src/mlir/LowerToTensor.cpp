@@ -40,17 +40,22 @@ struct AddOpLowering : public OpConversionPattern<dlc::AddOp> {
 
         // 1. Create the destination tensor (required by Linalg on Tensors)
         // For phase 0, Create an empty tensor to hold the result.
-        auto initTensor = rewriter.create<tensor::EmptyOp>(
-            loc, resultType, ValueRange{}
+        auto initTensor = tensor::EmptyOp::create(
+            rewriter,
+            loc,
+            resultType,
+            ValueRange{}
         );
 
         // 2. Map dlc.add to linalg.add
         // This handles both Rank-0 (scalar) and Rank-1 (vector) protos.
-        rewriter.replaceOpWithNewOp<linalg::AddOp>(
-            op,
+        rewriter.replaceOp(op, linalg::AddOp::create(
+            rewriter,
+            loc,
             resultType,
             ValueRange{adaptor.getLhs(), adaptor.getRhs()},
-            ValueRange{initTensor}
+            ValueRange{initTensor.getResult()} 
+        )
         );
 
         return success();
