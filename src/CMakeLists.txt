@@ -65,6 +65,7 @@ add_library(dlc_dialect STATIC
     mlir/Dialect.cpp
     mlir/MLIRGen.cpp
     mlir/LowerToTensor.cpp
+    mlir/LowerToMemref.cpp
 )
 add_dependencies(dlc_dialect DLC_OPS_GEN)
 target_include_directories(dlc_dialect PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -81,22 +82,31 @@ target_link_libraries(driver
         parser
         dlc_dialect
         # MLIR Libraries
+
         # Dialects
         MLIRPass
         MLIRTransforms
         MLIRLinalgDialect
         MLIRTensorDialect
         MLIRArithDialect
+        MLIRMemRefDialect
+        MLIRBufferizationDialect
+        MLIRFuncDialect
+
+        # Transformation & Bufferization Logic
+        MLIRBufferizationTransforms
+        MLIRLinalgTransforms
+        MLIRTensorTransforms
+
         # MLIRGen
         MLIRIR
         MLIRParser
         MLIRBytecodeReader
         MLIRAsmParser
         MLIRSupport
-        MLIRFuncDialect
-        MLIRControlFlowInterfaces
-        MLIRInferTypeOpInterface
-        MLIRSideEffectInterfaces
+        # MLIRControlFlowInterfaces
+        # MLIRInferTypeOpInterface
+        # MLIRSideEffectInterfaces
         # LLVM Libraries
         LLVMSupport
         LLVMCore
