@@ -23,9 +23,10 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
+#include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
 
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotModuleBufferize.h"
@@ -237,6 +238,10 @@ static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &mo
 
         pm.addPass(mlir::bufferization::createOneShotBufferizePass(passOptions));
         pm.addPass(mlir::bufferization::createBufferDeallocationSimplificationPass());
+
+        pm.addPass(mlir::createConvertLinalgToLoopsPass());
+        pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(mlir::createCSEPass());
     }
 
     // Run the pipeline if any passes were added
@@ -265,7 +270,8 @@ int main(int argc, char **argv) {
                     mlir::tensor::TensorDialect,
                     mlir::linalg::LinalgDialect,
                     mlir::memref::MemRefDialect,
-                    mlir::func::FuncDialect>();
+                    mlir::func::FuncDialect,
+                    mlir::scf::SCFDialect>();
 
     // Register bufferizable interface extensions with the registry
     mlir::arith::registerBufferizableOpInterfaceExternalModels(registry);
