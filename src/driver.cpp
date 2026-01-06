@@ -38,6 +38,19 @@
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 
+#include "mlir/Conversion/Passes.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+
 #include <fstream>
 #include <memory>
 #include <string>
@@ -54,7 +67,7 @@ static cl::opt<std::string> inputFilename(
 );
 
 namespace {
-enum Action { None, DumpPROTO, DumpMLIR, DumpMLIRTensor, DumpMLIRMemRef };
+enum Action { None, DumpPROTO, DumpMLIR, DumpMLIRTensor, DumpMLIRMemRef, DumpMLIRLLVM };
 }
 
 static cl::opt<enum Action>
@@ -67,7 +80,9 @@ static cl::opt<enum Action>
                     clEnumValN(DumpMLIRTensor, "mlir-tensor",
                                 "output the MLIR dump after tensor lowering"),
                     clEnumValN(DumpMLIRMemRef, "mlir-memref",
-                                "output the MLIR dump after memref lowering")
+                                "output the MLIR dump after memref lowering"),
+                    clEnumValN(DumpMLIRLLVM, "mlir-llvm",
+                                "output the MLIR-LLVM dump after llvm lowering")
                 ),
                 cl::init(None));
 
@@ -220,14 +235,14 @@ static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &mo
 
     mlir::PassManager pm (&context);
     // If the action is DumpMLIRTensor, run the lowering pass
-    if (emitAction == DumpMLIRTensor || emitAction == DumpMLIRMemRef) {
+    if (emitAction >= DumpMLIRTensor) {
 
         // Lower DLC -> Tensor/Linalg
         pm.addPass(mlir::dlc::createLowerToTensorPass());
         pm.addPass(mlir::createCanonicalizerPass());
     }
 
-    if (emitAction == DumpMLIRMemRef) {
+    if (emitAction >= DumpMLIRMemRef) {
         // Lower Tensor/Linalg -> MemRef
         pm.addPass(mlir::bufferization::createEmptyTensorToAllocTensorPass());
 
@@ -244,6 +259,11 @@ static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &mo
         pm.addPass(mlir::createCSEPass());
     }
 
+    if (emitAction == DumpMLIRLLVM) {
+        pm.addPass(mlir::dlc::createLowerToLLVMPass());
+        pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+    }
+
     // Run the pipeline if any passes were added
     if (emitAction != DumpMLIR) {
         if (mlir::failed(pm.run(*module))) {
@@ -252,7 +272,7 @@ static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &mo
         }
     }
 
-    // Print MLIR module to stdout
+    // Print MLIR module
     module->print(llvm::outs());
     llvm::outs() << "\n";
     return 0;
@@ -283,6 +303,9 @@ int main(int argc, char **argv) {
     // Attach the registry to the context
     mlir::MLIRContext context(registry);
 
+    context.loadDialect<mlir::cf::ControlFlowDialect,
+                        mlir::arith::ArithDialect,
+                        mlir::func::FuncDialect>();
 
     auto model = loadONNXModel(inputFilename);
     if (!model)
@@ -295,6 +318,7 @@ int main(int argc, char **argv) {
     case DumpMLIR:
     case DumpMLIRTensor:
     case DumpMLIRMemRef:
+    case DumpMLIRLLVM:
         return dumpMLIRModule(context, *model);
     default:
         llvm::errs()

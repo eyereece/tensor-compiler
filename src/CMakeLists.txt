@@ -65,6 +65,7 @@ add_library(dlc_dialect STATIC
     mlir/Dialect.cpp
     mlir/MLIRGen.cpp
     mlir/LowerToTensor.cpp
+    mlir/LowerToLLVM.cpp
 )
 add_dependencies(dlc_dialect DLC_OPS_GEN)
 target_include_directories(dlc_dialect PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -109,6 +110,16 @@ target_link_libraries(driver
         # LLVM Libraries
         LLVMSupport
         LLVMCore
+
+        # Conversion
+        MLIRLLVMCommonConversion
+        MLIRLLVMDialect
+        MLIRSCFToControlFlow
+        MLIRArithToLLVM
+        MLIRMemRefToLLVM
+        MLIRControlFlowToLLVM
+        MLIRFuncToLLVM
+        MLIRReconcileUnrealizedCasts
 )
 
 # --- 5. RPATH Configuration (So it finds LLVM .so files) ---
