@@ -76,6 +76,19 @@ add_executable(driver
     ${ONNX_INCLUDE_DIR}/onnx/onnx.pb.cc
 )
 
+set(llvm_components
+    Core
+    Support
+    OrcJIT
+    Analysis
+    ExecutionEngine
+)
+
+list(APPEND llvm_components native)
+
+# Gather the necessary LLVM Components
+llvm_map_components_to_libnames(llvm_libs ${llvm_components})
+
 # Use target_link_libraries to handle dependencies and propagation
 target_link_libraries(driver
     PRIVATE
@@ -104,9 +117,6 @@ target_link_libraries(driver
         MLIRBytecodeReader
         MLIRAsmParser
         MLIRSupport
-        # MLIRControlFlowInterfaces
-        # MLIRInferTypeOpInterface
-        # MLIRSideEffectInterfaces
         # LLVM Libraries
         LLVMSupport
         LLVMCore
@@ -120,6 +130,14 @@ target_link_libraries(driver
         MLIRControlFlowToLLVM
         MLIRFuncToLLVM
         MLIRReconcileUnrealizedCasts
+
+        # MLIR Translation & Execution Engine (emit llvm ir)
+        MLIRTargetLLVMIRExport
+        MLIRToLLVMIRTranslationRegistration
+        MLIRExecutionEngine
+
+        # LLVM Libraries
+        ${llvm_libs}
 )
 
 # --- 5. RPATH Configuration (So it finds LLVM .so files) ---

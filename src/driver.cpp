@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 
+// Bufferization
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotModuleBufferize.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -38,18 +39,21 @@
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 
+// Dump MLIR-LLVM
 #include "mlir/Conversion/Passes.h"
-#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
-#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
-#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
-#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+
+// Dump LLVM IR
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Transforms/Passes.h"
+#include "mlir/ExecutionEngine/OptUtils.h"
+#include "mlir/ExecutionEngine/ExecutionEngine.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 
 #include <fstream>
 #include <memory>
@@ -67,7 +71,15 @@ static cl::opt<std::string> inputFilename(
 );
 
 namespace {
-enum Action { None, DumpPROTO, DumpMLIR, DumpMLIRTensor, DumpMLIRMemRef, DumpMLIRLLVM };
+enum Action { 
+            None,
+            DumpPROTO,
+            DumpMLIR,
+            DumpMLIRTensor,
+            DumpMLIRMemRef,
+            DumpMLIRLLVM,
+            DumpLLVMIR
+         };
 }
 
 static cl::opt<enum Action>
@@ -82,7 +94,9 @@ static cl::opt<enum Action>
                     clEnumValN(DumpMLIRMemRef, "mlir-memref",
                                 "output the MLIR dump after memref lowering"),
                     clEnumValN(DumpMLIRLLVM, "mlir-llvm",
-                                "output the MLIR-LLVM dump after llvm lowering")
+                                "output the MLIR-LLVM dump after llvm lowering"),
+                    clEnumValN(DumpLLVMIR, "llvm",
+                                "output the LLVM IR dump")
                 ),
                 cl::init(None));
 
@@ -222,21 +236,10 @@ void dumpPROTO(const onnx::ModelProto &model) {
     }
 }
 
-static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &model) {
-    // Parse ONNX into ModelInfo
-    dlc::ModelInfo modelInfo = dlc::parseModelProto(model);
-
-    // Generate MLIR module
-    auto module = dlc::mlirGen(context, modelInfo);
-    if (!module) {
-        llvm::errs() << "Failed to generate MLIR module\n";
-        return 1;
-    }
-
+static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
     mlir::PassManager pm (&context);
     // If the action is DumpMLIRTensor, run the lowering pass
     if (emitAction >= DumpMLIRTensor) {
-
         // Lower DLC -> Tensor/Linalg
         pm.addPass(mlir::dlc::createLowerToTensorPass());
         pm.addPass(mlir::createCanonicalizerPass());
@@ -259,28 +262,73 @@ static int dumpMLIRModule(mlir::MLIRContext &context, const onnx::ModelProto &mo
         pm.addPass(mlir::createCSEPass());
     }
 
-    if (emitAction == DumpMLIRLLVM) {
+    if (emitAction >= DumpMLIRLLVM || emitAction == DumpLLVMIR) {
         pm.addPass(mlir::dlc::createLowerToLLVMPass());
         pm.addPass(mlir::createReconcileUnrealizedCastsPass());
     }
 
     // Run the pipeline if any passes were added
-    if (emitAction != DumpMLIR) {
-        if (mlir::failed(pm.run(*module))) {
-            llvm::errs() << "Lowering pipeline failed\n";
-            return 1;
-        }
+
+    if (mlir::failed(pm.run(module))) {
+        llvm::errs() << "Lowering pipeline failed\n";
+        return 1;
     }
 
+
     // Print MLIR module
-    module->print(llvm::outs());
-    llvm::outs() << "\n";
+    if (emitAction <= DumpMLIRLLVM) {
+        module->print(llvm::outs());
+        llvm::outs() << "\n";
+    }
+    return 0;
+}
+
+static int dumpLLVMIR(mlir::ModuleOp module) {
+    // Register translations to LLVM IR
+    mlir::registerBuiltinDialectTranslation(*module->getContext());
+    mlir::registerLLVMDialectTranslation(*module->getContext());
+
+    // Convert MLIR Module to LLVM IR module
+    llvm::LLVMContext llvmContext;
+    auto llvmModule = mlir::translateModuleToLLVMIR(module, llvmContext);
+    if (!llvmModule) {
+        llvm::errs() << "Failed to emit LLVM IR\n";
+        return -1;
+    }
+
+    // Initialize LLVM targets (needed for DataLayout)
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+
+    // Set up Data Layout and Target Triple
+    auto tmBuilderOrError = llvm::orc::JITTargetMachineBuilder::detectHost();
+    if (!tmBuilderOrError) {
+        llvm::errs() << "Could not create JITTargetMachineBuilder\n";
+        return -1;
+    }
+    auto tmOrError = tmBuilderOrError->createTargetMachine();
+    if (!tmOrError) {
+        llvm::errs() << "Could not create TargetMachine\n";
+        return -1;
+    }
+
+    mlir::ExecutionEngine::setupTargetTripleAndDataLayout(
+        llvmModule.get(), tmOrError.get().get()
+    );
+
+    // Output the result
+    llvm::outs() << *llvmModule << "\n";
     return 0;
 }
 
 
 // MAIN
 int main(int argc, char **argv) {
+    // Register any command line options
+    mlir::registerAsmPrinterCLOptions();
+    mlir::registerMLIRContextCLOptions();
+    mlir::registerPassManagerCLOptions();
+
     cl::ParseCommandLineOptions(argc, argv, "deep learning compiler\n");
     // mlir::MLIRContext context;
     mlir::DialectRegistry registry;
@@ -311,6 +359,9 @@ int main(int argc, char **argv) {
     if (!model)
         return 1;
 
+    dlc::ModelInfo modelInfo = dlc::parseModelProto(*model);
+    auto module = dlc::mlirGen(context, modelInfo);
+
     switch (emitAction) {
     case DumpPROTO:
         dumpPROTO(*model);
@@ -319,7 +370,10 @@ int main(int argc, char **argv) {
     case DumpMLIRTensor:
     case DumpMLIRMemRef:
     case DumpMLIRLLVM:
-        return dumpMLIRModule(context, *model);
+        return processMLIR(context, *module);
+    case DumpLLVMIR:
+        if (processMLIR(context, *module)) return 1;
+        return dumpLLVMIR(*module);
     default:
         llvm::errs()
             << "No action specified, use -emit=proto\n";
