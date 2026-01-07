@@ -345,7 +345,6 @@ struct __attribute__((packed)) MemRef1DF32 {
 
 }
 
-
 static int runJit(mlir::ModuleOp module, int64_t rank) {
     // Initialize LLVM targets for the host machine
     llvm::InitializeNativeTarget();
@@ -368,42 +367,45 @@ static int runJit(mlir::ModuleOp module, int64_t rank) {
     }
     auto &engine = maybeEngine.get();
 
-    // Invoke and handle result based on Rank
-    if (rank == 0) {
-        // SCALAR CASE
-        MemRef0DF32 result{};
-        MemRef0DF32 *ptrToResult = &result;
-        void *args[] = { &ptrToResult };
-        if (engine->invokePacked("_mlir_ciface_main", args)) return -1;
-        
-        llvm::outs() << "DEBUG: Struct size for Rank " << rank << " is " << sizeof(result) << " bytes\n";
-        llvm::outs() << "JIT Execution Result (Scalar): " << *result.aligned << "\n";
-        free(result.allocated);
+    // Calculate how many 64-bit slots needed: 3 + rank + rank
+    size_t numSlots = 3 + (2 * rank);
+    std::vector<int64_t> descriptor(numSlots, 0);
+    
+    // Pass a pointer to the start of the vector's data
+    int64_t *descriptorPtr = descriptor.data();
 
-    } else if (rank == 1) {
-        // RANK 1 CASE
-        MemRef1DF32 result{};
-        MemRef1DF32 *ptrToResult = &result;
-        void *args[] = { &ptrToResult };
-        llvm::outs() << "DEBUG: Struct size for Rank " << rank << " is " << sizeof(result) << " bytes\n";
-        if (engine->invokePacked("_mlir_ciface_main", args)) {
-            llvm::errs() << "invokePacked failed\n";
-            return -1;
-        }
+    // Pass the address of the pointer to the data
+    void *args[] = { &descriptorPtr };
 
-        int64_t size = result.sizes[0];
-        float *data = result.aligned;
-
-        llvm::outs() << "JIT Execution Result (Rank 1): [ ";
-        for (int64_t i = 0; i < size; ++i) {
-            llvm::outs() << data[i] << " ";
-        }
-        llvm::outs() << "]\n";
-        if (result.allocated) free(result.allocated);
-    } else {
-        llvm::errs() << "Unsupported rank: " << rank << "\n";
+    if (engine->invokePacked("_mlir_ciface_main", args)) {
+        llvm::errs() << "JIT execution failed\n";
         return -1;
     }
+
+    // descriptor is now filled with data
+    float *allocated = reinterpret_cast<float *>(descriptor[0]);
+    float *aligned = reinterpret_cast<float *>(descriptor[1]);
+    int64_t offset = descriptor[2];
+
+    // Read sizes (starts at index 3)
+    llvm::outs() << "Result Shape: [ ";
+    int64_t totalElements = (rank == 0) ? 1 : 1;
+    for(int64_t i = 0; i < rank; ++i) {
+        int64_t s = descriptor[3 + i];
+        llvm::outs() << s << " ";
+        totalElements *= s;
+    }
+    llvm::outs() << "]\n";
+
+    // Print the data
+    llvm::outs() << "Data: ";
+    for (int64_t i = 0; i < totalElements; ++i) {
+        llvm::outs() << aligned[offset + i] << " ";
+    }
+    llvm::outs() << "\n";
+
+    // Clean up
+    if (allocated && (uintptr_t)allocated != 0xDEADBEEF) free(allocated);
 
     return 0;
 }
