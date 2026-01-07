@@ -328,23 +328,6 @@ static int dumpLLVMIR(mlir::ModuleOp module) {
 }
 
 // Run JIT
-extern "C" {
-struct MemRef0DF32 {
-    float *allocated;
-    float *aligned;
-    int64_t offset;
-};
-
-struct __attribute__((packed)) MemRef1DF32 {
-    float *allocated;
-    float *aligned;
-    int64_t offset;
-    int64_t sizes[1];
-    int64_t strides[1];
-};
-
-}
-
 static int runJit(mlir::ModuleOp module, int64_t rank) {
     // Initialize LLVM targets for the host machine
     llvm::InitializeNativeTarget();
