@@ -8,6 +8,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "dlc/Parser.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -44,6 +45,9 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     auto func = func::FuncOp::create(
         builder.getUnknownLoc(), "main", builder.getFunctionType({}, {})
     );
+
+    // Tell the compiler to generate the _mlir_ciface_main wrapper
+    func->setAttr(mlir::LLVM::LLVMDialect::getEmitCWrapperAttrName(), builder.getUnitAttr());
 
     Block *entry = func.addEntryBlock();
     builder.setInsertionPointToStart(entry);

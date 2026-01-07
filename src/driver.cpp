@@ -55,6 +55,9 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 
+// JIT
+#include "mlir/IR/BuiltinTypes.h"
+
 #include <fstream>
 #include <memory>
 #include <string>
@@ -78,7 +81,8 @@ enum Action {
             DumpMLIRTensor,
             DumpMLIRMemRef,
             DumpMLIRLLVM,
-            DumpLLVMIR
+            DumpLLVMIR,
+            RunJIT
          };
 }
 
@@ -96,7 +100,9 @@ static cl::opt<enum Action>
                     clEnumValN(DumpMLIRLLVM, "mlir-llvm",
                                 "output the MLIR-LLVM dump after llvm lowering"),
                     clEnumValN(DumpLLVMIR, "llvm",
-                                "output the LLVM IR dump")
+                                "output the LLVM IR dump"),
+                    clEnumValN(RunJIT, "jit",
+                                "JIT the code and run it")
                 ),
                 cl::init(None));
 
@@ -321,6 +327,87 @@ static int dumpLLVMIR(mlir::ModuleOp module) {
     return 0;
 }
 
+// Run JIT
+extern "C" {
+struct MemRef0DF32 {
+    float *allocated;
+    float *aligned;
+    int64_t offset;
+};
+
+struct __attribute__((packed)) MemRef1DF32 {
+    float *allocated;
+    float *aligned;
+    int64_t offset;
+    int64_t sizes[1];
+    int64_t strides[1];
+};
+
+}
+
+
+static int runJit(mlir::ModuleOp module, int64_t rank) {
+    // Initialize LLVM targets for the host machine
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+
+    // Register translations to LLVM IR
+    mlir::registerBuiltinDialectTranslation(*module->getContext());
+    mlir::registerLLVMDialectTranslation(*module->getContext());
+
+    // Create an MLIR execution engine
+    // optLevel 2 or 3 enables LLVM optimization
+    auto optPipeline = mlir::makeOptimizingTransformer(3, 0, nullptr);
+    mlir::ExecutionEngineOptions engineOptions;
+    engineOptions.transformer = optPipeline;
+
+    auto maybeEngine = mlir::ExecutionEngine::create(module, engineOptions);
+    if (!maybeEngine) {
+        llvm::errs() << "Failed to construct execution engine\n";
+        return -1;
+    }
+    auto &engine = maybeEngine.get();
+
+    // Invoke and handle result based on Rank
+    if (rank == 0) {
+        // SCALAR CASE
+        MemRef0DF32 result{};
+        MemRef0DF32 *ptrToResult = &result;
+        void *args[] = { &ptrToResult };
+        if (engine->invokePacked("_mlir_ciface_main", args)) return -1;
+        
+        llvm::outs() << "DEBUG: Struct size for Rank " << rank << " is " << sizeof(result) << " bytes\n";
+        llvm::outs() << "JIT Execution Result (Scalar): " << *result.aligned << "\n";
+        free(result.allocated);
+
+    } else if (rank == 1) {
+        // RANK 1 CASE
+        MemRef1DF32 result{};
+        MemRef1DF32 *ptrToResult = &result;
+        void *args[] = { &ptrToResult };
+        llvm::outs() << "DEBUG: Struct size for Rank " << rank << " is " << sizeof(result) << " bytes\n";
+        if (engine->invokePacked("_mlir_ciface_main", args)) {
+            llvm::errs() << "invokePacked failed\n";
+            return -1;
+        }
+
+        int64_t size = result.sizes[0];
+        float *data = result.aligned;
+
+        llvm::outs() << "JIT Execution Result (Rank 1): [ ";
+        for (int64_t i = 0; i < size; ++i) {
+            llvm::outs() << data[i] << " ";
+        }
+        llvm::outs() << "]\n";
+        if (result.allocated) free(result.allocated);
+    } else {
+        llvm::errs() << "Unsupported rank: " << rank << "\n";
+        return -1;
+    }
+
+    return 0;
+}
+
 
 // MAIN
 int main(int argc, char **argv) {
@@ -374,6 +461,20 @@ int main(int argc, char **argv) {
     case DumpLLVMIR:
         if (processMLIR(context, *module)) return 1;
         return dumpLLVMIR(*module);
+    case RunJIT: {
+        // Find the main function created by mlirGen
+        auto mainFunc = module->lookupSymbol<mlir::func::FuncOp>("main");
+        if (!mainFunc) {
+            llvm::errs() << "Error: main function not found after mlirGen\n";
+            return 1;
+        }
+
+        // Get the rank from the TENSOR type
+        auto tensorType = llvm::cast<mlir::RankedTensorType>(mainFunc.getResultTypes()[0]);
+        int64_t rank = tensorType.getRank();
+        if (processMLIR(context, *module)) return 1;
+        return runJit(*module, rank);
+    }
     default:
         llvm::errs()
             << "No action specified, use -emit=proto\n";
