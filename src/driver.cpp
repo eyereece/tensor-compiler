@@ -58,6 +58,9 @@
 // JIT
 #include "mlir/IR/BuiltinTypes.h"
 
+// TESTS
+#include "mlir/Parser/Parser.h"
+
 #include <fstream>
 #include <memory>
 #include <string>
@@ -411,7 +414,8 @@ int main(int argc, char **argv) {
                     mlir::linalg::LinalgDialect,
                     mlir::memref::MemRefDialect,
                     mlir::func::FuncDialect,
-                    mlir::scf::SCFDialect>();
+                    mlir::scf::SCFDialect,
+                    mlir::dlc::DlcDialect>();
 
     // Register bufferizable interface extensions with the registry
     mlir::arith::registerBufferizableOpInterfaceExternalModels(registry);
@@ -423,20 +427,38 @@ int main(int argc, char **argv) {
     // Attach the registry to the context
     mlir::MLIRContext context(registry);
 
-    context.loadDialect<mlir::cf::ControlFlowDialect,
+    context.loadDialect<mlir::dlc::DlcDialect,
+                        mlir::cf::ControlFlowDialect,
                         mlir::arith::ArithDialect,
                         mlir::func::FuncDialect>();
+    
+    mlir::OwningOpRef<mlir::ModuleOp> module;
+    std::unique_ptr<onnx::ModelProto> model_ptr;
 
-    auto model = loadONNXModel(inputFilename);
-    if (!model)
+    llvm::StringRef input(inputFilename);
+    if (input.ends_with(".onnx")) {
+        model_ptr = loadONNXModel(inputFilename);
+        if (model_ptr) {
+            dlc::ModelInfo modelInfo = dlc::parseModelProto(*model_ptr);
+            module = dlc::mlirGen(context, modelInfo);
+        }
+    } else {
+        module = mlir::parseSourceFile<mlir::ModuleOp>(inputFilename, &context);
+    }
+
+    if (!module) {
+        llvm::errs() << "Error: Failed to load/parse input file: " << inputFilename << "\n";
         return 1;
-
-    dlc::ModelInfo modelInfo = dlc::parseModelProto(*model);
-    auto module = dlc::mlirGen(context, modelInfo);
+    }
 
     switch (emitAction) {
     case DumpPROTO:
-        dumpPROTO(*model);
+        if (model_ptr) {
+            dumpPROTO(*model_ptr);
+        } else {
+            llvm::errs() << "Error: No ONNX model loaded for -emit=proto\n";
+            return 1;
+        }
         return 0;
     case DumpMLIR:
     case DumpMLIRTensor:
