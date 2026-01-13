@@ -386,9 +386,10 @@ static int runJit(mlir::ModuleOp module, int64_t rank) {
     // Print the data
     llvm::outs() << "Data: ";
     for (int64_t i = 0; i < totalElements; ++i) {
-        llvm::outs() << aligned[offset + i] << " ";
+        llvm::outs() << llvm::format("%.7f ", aligned[offset + i]);
     }
     llvm::outs() << "\n";
+    llvm::outs().flush();
 
     // Clean up
     if (allocated && (uintptr_t)allocated != 0xDEADBEEF) free(allocated);

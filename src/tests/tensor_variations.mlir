@@ -1,7 +1,7 @@
 // RUN: %driver -emit=mlir-memref %s | FileCheck %s
 
 // --- Test 1: Larger Shape (10 elements) ---
-// This checks if your loop logic uses the shape from the tensor
+// This checks if the loop logic uses the shape from the tensor
 // rather than a hardcoded '2'.
 func.func @test_large_shape(%arg0: tensor<10xf32>, %arg1: tensor<10xf32>) -> tensor<10xf32> {
   %0 = tensor.empty() : tensor<10xf32>
@@ -13,7 +13,7 @@ func.func @test_large_shape(%arg0: tensor<10xf32>, %arg1: tensor<10xf32>) -> ten
 // CHECK: scf.for %{{.*}} = %{{.*}} to %[[C10]]
 
 // --- Test 2: Different Data Type (Integer) ---
-// This checks if your lowering switches from arith.addf (float) 
+// This checks if the lowering switches from arith.addf (float) 
 // to arith.addi (integer) automatically.
 func.func @test_int_type(%arg0: tensor<2xi32>, %arg1: tensor<2xi32>) -> tensor<2xi32> {
   %0 = tensor.empty() : tensor<2xi32>
