@@ -286,7 +286,9 @@ static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
 
     // Print MLIR module
     if (emitAction <= DumpMLIRLLVM) {
-        module->print(llvm::outs());
+        mlir::OpPrintingFlags flags;
+        flags.enableDebugInfo();
+        module->print(llvm::outs(), flags);
         llvm::outs() << "\n";
     }
     return 0;

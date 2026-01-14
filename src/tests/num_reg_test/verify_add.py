@@ -23,7 +23,6 @@ with open("temp.mlir", "w") as f: f.write(mlir_template)
 result = subprocess.check_output(["../../build/driver", "-emit=jit", "temp.mlir"]).decode()
 
 # 4. Parse result using Regex
-# Use re.DOTALL to handle newlines and \s+ for flexible whitespace
 match = re.search(r"Data:\s*([\d\s\.\-eE+]+)", result)
 
 if match:

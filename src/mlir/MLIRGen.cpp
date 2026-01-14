@@ -29,6 +29,13 @@ static mlir::Type getMlirType(mlir::OpBuilder &builder, TensorInfo::DataType typ
     }
 }
 
+// Helper to get location (node's name)
+mlir::Location getLoc(const NodeInfo &node, mlir::OpBuilder &builder) {
+        // If the node has a name, use it. Otherwise, use the op_type
+        std::string identifier = node.outputs.empty() ? node.op_type : node.outputs[0];
+        return mlir::NameLoc::get(builder.getStringAttr(identifier));
+}
+
 mlir::OwningOpRef<mlir::ModuleOp>
 mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     // Register Dialect
@@ -60,6 +67,8 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
 
     // Walk nodes
     for (const NodeInfo &node : model.graph.nodes) {
+        mlir::Location loc = getLoc(node, builder);
+        b.setLoc(loc);
         if (node.op_type == "Constant") {
             // Expect one attribute: value
             const AttributeInfo &attr = node.attributes[0];
