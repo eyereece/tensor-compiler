@@ -346,7 +346,7 @@ static int dumpLLVMIR(mlir::ModuleOp module) {
 }
 
 // Run JIT
-static int runJit(mlir::ModuleOp module, int64_t rank) {
+static int runJit(mlir::ModuleOp module, int64_t outRank, const std::vector<int64_t>& inRanks) {
     // Initialize LLVM targets for the host machine
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
@@ -368,37 +368,67 @@ static int runJit(mlir::ModuleOp module, int64_t rank) {
     }
     auto &engine = maybeEngine.get();
 
-    // Calculate how many 64-bit slots needed: 3 + rank + rank
-    size_t numSlots = 3 + (2 * rank);
-    std::vector<int64_t> descriptor(numSlots, 0);
-    
-    // Pass a pointer to the start of the vector's data
-    int64_t *descriptorPtr = descriptor.data();
+    // TEMP
 
-    // Pass the address of the pointer to the data
-    void *args[] = { &descriptorPtr };
+    // Prepare input data
+    std::vector<std::vector<int64_t>> inputDescriptors;
+    std::vector<std::vector<float>> inputDataStore; // To keep memory alive
+    std::vector<int64_t*> inputPtrs;
 
+    for (int64_t r : inRanks) {
+        // Create dummy data for now
+        std::vector<float> data(2, 10.0f);
+        inputDataStore.push_back(data);
+
+        size_t slots = 3 + (2 * r);
+        inputDescriptors.emplace_back(slots, 0);
+        auto& desc = inputDescriptors.back();
+
+        desc[0] = reinterpret_cast<int64_t>(inputDataStore.back().data());  // allocated
+        desc[1] = desc[0];  // aligned
+        desc[2] = 0;    // offset
+        if (r > 0) {
+            desc[3] = 2;    // size
+            desc[4] = 1;    // stride
+        }
+        inputPtrs.push_back(desc.data());
+    }
+
+    // Prepare output
+    size_t outSlots = 3 + (2 * outRank);
+    std::vector<int64_t> outDesc(outSlots, 0);
+    int64_t *outPtr = outDesc.data();
+
+    // The packed argument array
+    // result first, then all inputs
+    std::vector<void*> args;
+    args.push_back(&outPtr);
+    for (size_t i = 0; i < inputPtrs.size(); ++i) {
+        args.push_back(&inputPtrs[i]);
+    }
+
+    // END TEMP
+
+    // Invoke
     if (engine->invokePacked("_mlir_ciface_main", args)) {
         llvm::errs() << "JIT execution failed\n";
         return -1;
     }
 
-    // descriptor is now filled with data
-    float *allocated = reinterpret_cast<float *>(descriptor[0]);
-    float *aligned = reinterpret_cast<float *>(descriptor[1]);
-    int64_t offset = descriptor[2];
+    // Read data
+    float *allocated = reinterpret_cast<float *>(outDesc[0]);
+    float *aligned = reinterpret_cast<float *>(outDesc[1]);
+    int64_t offset = outDesc[2];
 
-    // Read sizes (starts at index 3)
     llvm::outs() << "Result Shape: [ ";
-    int64_t totalElements = (rank == 0) ? 1 : 1;
-    for(int64_t i = 0; i < rank; ++i) {
-        int64_t s = descriptor[3 + i];
+    int64_t totalElements = 1;  // initial number, loop will calculate actual totalElements
+    for (int64_t i = 0; i < outRank; ++i) {
+        int64_t s = outDesc[3 + i];
         llvm::outs() << s << " ";
         totalElements *= s;
     }
     llvm::outs() << "]\n";
 
-    // Print the data
     llvm::outs() << "Data: ";
     for (int64_t i = 0; i < totalElements; ++i) {
         llvm::outs() << llvm::format("%.7f ", aligned[offset + i]);
@@ -406,7 +436,6 @@ static int runJit(mlir::ModuleOp module, int64_t rank) {
     llvm::outs() << "\n";
     llvm::outs().flush();
 
-    // Clean up
     if (allocated && (uintptr_t)allocated != 0xDEADBEEF) free(allocated);
 
     return 0;
@@ -493,11 +522,19 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        // Get the rank from the TENSOR type
-        auto tensorType = llvm::cast<mlir::RankedTensorType>(mainFunc.getResultTypes()[0]);
-        int64_t rank = tensorType.getRank();
+        // Get input ranks
+        std::vector<int64_t> inRanks;
+        for (auto type : mainFunc.getArgumentTypes()) {
+            auto tensorType = llvm::cast<mlir::RankedTensorType>(type);
+            inRanks.push_back(tensorType.getRank());
+        }
+
+        // Get output rank
+        auto outTensorType = llvm::cast<mlir::RankedTensorType>(mainFunc.getResultTypes()[0]);
+        int64_t outRank = outTensorType.getRank();
+
         if (processMLIR(context, *module)) return 1;
-        return runJit(*module, rank);
+        return runJit(*module, outRank, inRanks);
     }
     default:
         llvm::errs()

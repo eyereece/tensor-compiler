@@ -72,24 +72,8 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     llvm::StringMap<mlir::Value> valueMap;
 
     for (size_t i = 0; i < model.graph.inputs.size(); ++i) {
-const auto &inputInfo = model.graph.inputs[i];
-        
-        // --- TEMPORARY HACK TO PREVENT SEGFAULT ---
-        // Instead of using the function argument, create a constant
-        // This allows the JIT to run without passing data from C++
-        auto elementType = getMlirType(builder, inputInfo.elementType);
-        auto type = RankedTensorType::get(inputInfo.shape, elementType);
-        
-        // dummy data
-        // For float32, [0.0, 0.0]
-        std::vector<float> dummyData(2, 5.0f);
-        auto denseAttr = DenseElementsAttr::get(type, llvm::ArrayRef<float>(dummyData));
-        
-        auto constOp = b.create<ConstantOp>(type, denseAttr);
-        valueMap[inputInfo.name] = constOp.getResult();
-        // ------------------------------------------
-        
-        // valueMap[inputInfo.name] = entry->getArgument(i);
+        const auto &inputInfo = model.graph.inputs[i];
+        valueMap[inputInfo.name] = entry->getArgument(i);
     }
 
     // Walk nodes
@@ -134,8 +118,7 @@ const auto &inputInfo = model.graph.inputs[i];
         }
     }
     b.create<func::ReturnOp>(returnValues);
-    entry->eraseArguments(0, entry->getNumArguments());
-    func.setType(builder.getFunctionType({}, returnTypes));
+    func.setType(builder.getFunctionType(argTypes, returnTypes));
 
     // Verify module
     if (failed(mlir::verify(module))) {

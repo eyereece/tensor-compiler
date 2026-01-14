@@ -1,7 +1,7 @@
-1.704175e-01 tensor_test.mlir
-1.739583e-01 memref_test.mlir
-1.746325e-01 tensor_variations.mlir
-2.261951e-01 add_execution_test.mlir
-2.363720e-01 num_reg_test/temp.mlir
-1.621096e-01 verifier_test/test_const_error.mlir
-1.621218e-01 verifier_test/test_error.mlir
+1.887088e-01 tensor_test.mlir
+1.929839e-01 memref_test.mlir
+1.928294e-01 tensor_variations.mlir
+2.813320e-01 add_execution_test.mlir
+4.057865e-01 num_reg_test/temp.mlir
+1.730118e-01 verifier_test/test_const_error.mlir
+1.735520e-01 verifier_test/test_error.mlir
