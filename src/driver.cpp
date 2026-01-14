@@ -182,6 +182,19 @@ void dumpPROTO(const onnx::ModelProto &model) {
 
     const dlc::GraphInfo &graph = modelInfo.graph;
     llvm::outs() << "  Graph: " << graph.name << "\n";
+
+    // INITIALIZERS
+    llvm::outs() << "  Initializers [" << graph.initializers.size() << "]\n";
+    for (const auto &pair : graph.initializers) {
+        const std::string &name = pair.first;
+        const dlc::TensorInfo &tensor = pair.second;
+
+        llvm::outs() << "    Name: " << name << "\n";
+        dumpTensor(tensor);
+        llvm::outs() << "\n";
+    }
+    // END INITIALIZERS
+
     llvm::outs() << "  Nodes: " << graph.nodes.size() << "\n";
 
     for (const dlc::NodeInfo &node : graph.nodes) {
@@ -439,6 +452,7 @@ int main(int argc, char **argv) {
     std::unique_ptr<onnx::ModelProto> model_ptr;
 
     llvm::StringRef input(inputFilename);
+
     if (input.ends_with(".onnx")) {
         model_ptr = loadONNXModel(inputFilename);
         if (model_ptr) {

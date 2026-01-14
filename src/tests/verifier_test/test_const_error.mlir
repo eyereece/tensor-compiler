@@ -1,3 +1,4 @@
+// RUN: not ../../build/driver -emit=mlir %s 2>&1 | FileCheck %s
 module {
   func.func @main() {
     // Parser sees: dense attribute is valid (3 elements for tensor<3>)
@@ -6,3 +7,5 @@ module {
     return
   }
 }
+
+// CHECK: error: 'dlc.constant' op number of elements in 'value' attribute

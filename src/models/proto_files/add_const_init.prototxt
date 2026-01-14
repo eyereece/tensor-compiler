@@ -1,0 +1,69 @@
+ir_version: 13
+producer_name: "toy-compiler"
+graph {
+  node {
+    output: "const_out"
+    name: "my_constant_op"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        data_type: 1
+        name: "const_tensor_1"
+        raw_data: "\000\000\200?\000\000\200?"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    input: "x"
+    input: "stem.1.weight"
+    output: "sum1"
+    name: "add_weights"
+    op_type: "Add"
+  }
+  node {
+    input: "sum1"
+    input: "const_out"
+    output: "final_out"
+    name: "add_const"
+    op_type: "Add"
+  }
+  name: "ToyCompilerGraph"
+  initializer {
+    dims: 2
+    data_type: 1
+    name: "stem.1.weight"
+    raw_data: "\000\000 A\000\000\240A"
+  }
+  input {
+    name: "x"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+  output {
+    name: "final_out"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+}
+opset_import {
+  version: 25
+}

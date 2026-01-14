@@ -10,6 +10,7 @@ expected = a + b
 # 2. Run compiler
 # Generate temp.mlir
 mlir_template = f"""
+// RUN: python3 verify_add.py
 func.func @main() -> tensor<2xf32> attributes {{llvm.emit_c_interface}} {{
   %0 = arith.constant dense<{a.tolist()}> : tensor<2xf32>
   %1 = arith.constant dense<{b.tolist()}> : tensor<2xf32>

@@ -128,9 +128,22 @@ static NodeInfo parseNode(const onnx::NodeProto &node) {
 static GraphInfo parseGraph(const onnx::GraphProto &graph) {
     GraphInfo g;
     g.name = graph.name();
+
+    for (const auto &init : graph.initializer()) {
+        g.initializers[init.name()] = parseTensor(init);
+    }
     
     for (const auto &node : graph.node())
+        if (node.op_type() == "Constant") {
+            for (const auto &attr : node.attribute()) {
+                if (attr.name() == "value" && attr.has_t()) {
+                    TensorInfo t = parseTensor(attr.t());
+                    g.initializers[node.output(0)] = t;
+                }
+            }
+        } else {
         g.nodes.push_back(parseNode(node));
+        }
     for (const auto &in : graph.input())
         g.inputs.push_back(parseValueInfo(in));
     for (const auto &out : graph.output())

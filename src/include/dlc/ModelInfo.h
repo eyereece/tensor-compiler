@@ -1,11 +1,12 @@
 #ifndef MODEL_INFO_H
 #define MODEL_INFO_H
 
-#include <onnx/onnx.pb.h>
+// #include <onnx/onnx.pb.h>
 
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <map>
 
 namespace dlc {
 
@@ -52,6 +53,7 @@ struct GraphInfo {
         std::vector<NodeInfo> nodes;
         std::vector<ValueInfo> inputs;
         std::vector<ValueInfo> outputs;
+        std::map<std::string, TensorInfo> initializers;
 };
 
 struct ModelInfo {

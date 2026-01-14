@@ -48,9 +48,15 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     // Builder
     mlir::OpBuilder builder(&context);
 
+    llvm::SmallVector<mlir::Type, 4> argTypes;
+    for (const auto &inputInfo : model.graph.inputs) {
+        auto elementType = getMlirType(builder, inputInfo.elementType);
+        argTypes.push_back(mlir::RankedTensorType::get(inputInfo.shape, elementType));
+    }
+
     // Create main function
     auto func = func::FuncOp::create(
-        builder.getUnknownLoc(), "main", builder.getFunctionType({}, {})
+        builder.getUnknownLoc(), "main", builder.getFunctionType(argTypes, {})
     );
 
     // Tell the compiler to generate the _mlir_ciface_main wrapper
@@ -65,43 +71,51 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     // Initialize Value table: ONNX name -> MLIR value
     llvm::StringMap<mlir::Value> valueMap;
 
+    for (size_t i = 0; i < model.graph.inputs.size(); ++i) {
+const auto &inputInfo = model.graph.inputs[i];
+        
+        // --- TEMPORARY HACK TO PREVENT SEGFAULT ---
+        // Instead of using the function argument, create a constant
+        // This allows the JIT to run without passing data from C++
+        auto elementType = getMlirType(builder, inputInfo.elementType);
+        auto type = RankedTensorType::get(inputInfo.shape, elementType);
+        
+        // dummy data
+        // For float32, [0.0, 0.0]
+        std::vector<float> dummyData(2, 5.0f);
+        auto denseAttr = DenseElementsAttr::get(type, llvm::ArrayRef<float>(dummyData));
+        
+        auto constOp = b.create<ConstantOp>(type, denseAttr);
+        valueMap[inputInfo.name] = constOp.getResult();
+        // ------------------------------------------
+        
+        // valueMap[inputInfo.name] = entry->getArgument(i);
+    }
+
     // Walk nodes
     for (const NodeInfo &node : model.graph.nodes) {
         mlir::Location loc = getLoc(node, builder);
         b.setLoc(loc);
-        if (node.op_type == "Constant") {
-            // Expect one attribute: value
-            const AttributeInfo &attr = node.attributes[0];
-            const TensorInfo &tensor = attr.tensor;
+        // TEMP
+        llvm::SmallVector<mlir::Value, 2> operands;
+        for (const std::string &inName : node.inputs) {
+            if (valueMap.count(inName)) {
+                operands.push_back(valueMap[inName]);
+            } else if (model.graph.initializers.count(inName)) {
+                const auto &tensor = model.graph.initializers[inName];
+                auto type = RankedTensorType::get(tensor.shape, getMlirType(builder, tensor.elementType));
 
-            // Setup Type using clean shape vector and enum
-            auto elementType = getMlirType(builder, tensor.elementType);
-            auto type = RankedTensorType::get(tensor.shape, elementType);
+                auto denseAttr = DenseElementsAttr::getFromRawBuffer(
+                    type, llvm::ArrayRef<char>(tensor.rawData.data(), tensor.rawData.size())
+                );
 
-            // Use the raw buffer
-            auto denseAttr = DenseElementsAttr::getFromRawBuffer(
-                type,
-                llvm::ArrayRef<char>(tensor.rawData.data(), tensor.rawData.size())
-            );
-            auto constOp = b.create<ConstantOp>(type, denseAttr);
-            valueMap[node.outputs[0]] = constOp.getResult();
-        }
-
-        else if (node.op_type == "Add") {
-            auto lhs = valueMap.lookup(node.inputs[0]);
-            auto rhs = valueMap.lookup(node.inputs[1]);
-
-            if (!lhs || !rhs) {
-                llvm::errs() << "Error: Add inputs not found for " << node.outputs[0] << "\n";
-                return nullptr;
+                auto constOp = b.create<ConstantOp>(type, denseAttr);
+                valueMap[inName] = constOp.getResult();
+                operands.push_back(constOp.getResult());
             }
-            auto addOp = b.create<AddOp>(lhs, rhs);
-            valueMap[node.outputs[0]] = addOp.getResult();
         }
-
-        else {
-            llvm::errs() << "Unsupported op: " << node.op_type << "\n";
-            return nullptr;
+        if (node.op_type == "Add") {
+            valueMap[node.outputs[0]] = b.create<AddOp>(operands[0], operands[1]);
         }
     }
 
@@ -120,6 +134,7 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
         }
     }
     b.create<func::ReturnOp>(returnValues);
+    entry->eraseArguments(0, entry->getNumArguments());
     func.setType(builder.getFunctionType({}, returnTypes));
 
     // Verify module
