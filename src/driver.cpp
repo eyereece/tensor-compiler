@@ -69,6 +69,13 @@
 namespace cl = llvm::cl;
 
 // COMMAND-LINE OPTIONS
+static cl::list<float> inputDataList(
+    "input-data",
+    cl::desc("Specify input data as a space-separated list of floats"),
+    cl::ZeroOrMore,
+    cl::CommaSeparated
+);
+
 static cl::opt<std::string> inputFilename(
     cl::Positional,
     cl::desc("<input onnx file>"),
@@ -346,7 +353,10 @@ static int dumpLLVMIR(mlir::ModuleOp module) {
 }
 
 // Run JIT
-static int runJit(mlir::ModuleOp module, int64_t outRank, const std::vector<int64_t>& inRanks) {
+static int runJit(mlir::ModuleOp module,
+                    int64_t outRank,
+                    const std::vector<int64_t>& inRanks,
+                    const llvm::cl::list<float>& cliData) {
     // Initialize LLVM targets for the host machine
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
@@ -368,16 +378,26 @@ static int runJit(mlir::ModuleOp module, int64_t outRank, const std::vector<int6
     }
     auto &engine = maybeEngine.get();
 
-    // TEMP
-
     // Prepare input data
     std::vector<std::vector<int64_t>> inputDescriptors;
     std::vector<std::vector<float>> inputDataStore; // To keep memory alive
     std::vector<int64_t*> inputPtrs;
 
+    size_t dataOffset = 0;
+
     for (int64_t r : inRanks) {
-        // Create dummy data for now
-        std::vector<float> data(2, 10.0f);
+        // Calculate how many elements this input needs
+        // Assume fixed size 2 based on current models
+        int64_t numElements = (r == 0) ? 1 : 2;
+
+        std::vector<float> data;
+        for (int64_t i = 0; i < numElements; ++i) {
+            if (dataOffset < cliData.size()) {
+                data.push_back(cliData[dataOffset++]);
+            } else {
+                data.push_back(0.0f);   // Default fallback
+            }
+        }
         inputDataStore.push_back(data);
 
         size_t slots = 3 + (2 * r);
@@ -388,7 +408,7 @@ static int runJit(mlir::ModuleOp module, int64_t outRank, const std::vector<int6
         desc[1] = desc[0];  // aligned
         desc[2] = 0;    // offset
         if (r > 0) {
-            desc[3] = 2;    // size
+            desc[3] = numElements;    // size
             desc[4] = 1;    // stride
         }
         inputPtrs.push_back(desc.data());
@@ -534,7 +554,7 @@ int main(int argc, char **argv) {
         int64_t outRank = outTensorType.getRank();
 
         if (processMLIR(context, *module)) return 1;
-        return runJit(*module, outRank, inRanks);
+        return runJit(*module, outRank, inRanks, inputDataList);
     }
     default:
         llvm::errs()
