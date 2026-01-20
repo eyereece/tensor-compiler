@@ -56,7 +56,11 @@ add_public_tablegen_target(DLC_OPS_GEN)
 # --- 4. Targets ---
 
 # A. Parser Library
-add_library(parser STATIC parser/Parser.cpp)
+add_library(parser STATIC
+    parser/Parser.cpp
+    parser/OnnxDumping.cpp
+    ${ONNX_INCLUDE_DIR}/onnx/onnx.pb.cc
+)
 target_include_directories(parser PUBLIC include)
 target_link_libraries(parser PUBLIC protobuf)
 
@@ -73,7 +77,6 @@ target_include_directories(dlc_dialect PUBLIC include ${CMAKE_CURRENT_BINARY_DIR
 # C. Main Driver
 add_executable(driver 
     driver.cpp 
-    ${ONNX_INCLUDE_DIR}/onnx/onnx.pb.cc
 )
 
 set(llvm_components
