@@ -1,8 +1,8 @@
 import onnx
 from google.protobuf import text_format
 
-ONNX_FILENAME = "onnx_files/add_constant_1.onnx"
-PROTOTXT_FILENAME = "proto_files/add_constant_1.prototxt"
+ONNX_FILENAME = "onnx_files/mnist.onnx"
+PROTOTXT_FILENAME = "proto_files/mnist.prototxt"
 
 model = onnx.load(ONNX_FILENAME)
 
