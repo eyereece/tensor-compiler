@@ -64,6 +64,54 @@ struct AddOpLowering : public OpConversionPattern<dlc::AddOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// Pattern: dlc.add -> linalg.add
+//===----------------------------------------------------------------------===//
+struct ReluOpLowering : public OpConversionPattern<dlc::ReluOp> {
+    using OpConversionPattern<dlc::ReluOp>::OpConversionPattern;
+
+    LogicalResult matchAndRewrite(dlc::ReluOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const final {
+        auto loc = op.getLoc();
+        auto type = cast<RankedTensorType>(op.getType());
+
+        // Create destination tensor
+        auto initTensor = tensor::EmptyOp::create(
+            rewriter, loc, type.getShape(), type.getElementType()
+        );
+
+        // Define the indexing maps (identity for element-wise)
+        auto indexingMap = rewriter.getMultiDimIdentityMap(type.getRank());
+        SmallVector<AffineMap> maps(2, indexingMap);    // one for input, one for output
+
+        // Define iterator types (all parallel for element-wise)
+        SmallVector<utils::IteratorType> iterators(type.getRank(), utils::IteratorType::parallel);
+
+        // Create linalg.generic op
+        auto reluGeneric = linalg::GenericOp::create(
+            rewriter,
+            loc,
+            type,
+            /*inputs=*/adaptor.getInput(),
+            /*outputs=*/initTensor.getResult(),
+            maps,
+            iterators,
+            [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
+                // max(0, input)
+                Value input = args[0];
+                Value zero = arith::ConstantOp::create(nestedBuilder, nestedLoc, nestedBuilder.getFloatAttr(type.getElementType(), 0.0));
+                Value max = arith::MaxNumFOp::create(nestedBuilder, nestedLoc, input, zero);
+                linalg::YieldOp::create(nestedBuilder, nestedLoc, max);
+            }
+        );
+    
+    // Use attributes to tag it as relu
+    // reluGeneric->setAttr("relu", rewriter.getUnitAttr());
+    rewriter.replaceOp(op, reluGeneric->getResults());
+    return success();
+    }
+};
+
+//===----------------------------------------------------------------------===//
 // Pass Definition
 //===----------------------------------------------------------------------===//
 struct DlcToTensorLoweringPass
@@ -86,7 +134,7 @@ struct DlcToTensorLoweringPass
             target.addIllegalDialect<dlc::DlcDialect>();
 
             RewritePatternSet patterns(&getContext());
-            patterns.add<ConstantOpLowering, AddOpLowering>(&getContext());
+            patterns.add<ConstantOpLowering, AddOpLowering, ReluOpLowering>(&getContext());
 
             if (failed(applyPartialConversion(getOperation(), target, std::move(patterns))))
                 signalPassFailure();
