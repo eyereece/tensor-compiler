@@ -18,10 +18,10 @@ func.func @main() -> tensor<2xf32> attributes {{llvm.emit_c_interface}} {{
   return %2 : tensor<2xf32>
 }}
 """
-with open("temp.mlir", "w") as f: f.write(mlir_template)
+with open("verify_add.mlir", "w") as f: f.write(mlir_template)
 
 # 3. Execute JIT
-result = subprocess.check_output(["../../build/driver", "-emit=jit", "temp.mlir"]).decode()
+result = subprocess.check_output(["../../build/driver", "-emit=jit", "verify_add.mlir"]).decode()
 
 # 4. Parse result using Regex
 match = re.search(r"Data:\s*([\d\s\.\-eE+]+)", result)
