@@ -5,9 +5,6 @@
 #include "dlc/Dialect.h"
 #include "dlc/Passes.h"
 
-// #include <google/protobuf/io/zero_copy_stream_impl.h>
-// #include <google/protobuf/text_format.h>
-
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 
@@ -57,7 +54,6 @@
 // TESTS
 #include "mlir/Parser/Parser.h"
 
-// #include <fstream>
 #include <memory>
 #include <string>
 #include <ostream>

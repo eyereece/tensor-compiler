@@ -8,6 +8,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/FunctionInterfaces.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/InferTypeOpInterface.td"
 
 
 // definition of the dlc dialect in the ODS framework
@@ -66,6 +67,19 @@ def AddOp : Dlc_Op<"add"> {
     ];
 }
 
+//===----------------------------------------------------------------------===//
+// ReluOp
+//===----------------------------------------------------------------------===//
+def ReluOp : Dlc_Op<"relu", [Pure, SameOperandsAndResultType]> {
+    let summary = "rectified linear unit activation";
+    let description = [{
+        Element-wise Rectified Linear Unit operation.
+        f(x) = max(0, x)
+    }];
+    let arguments = (ins F32Tensor:$input);
+    let results = (outs F32Tensor:$output);
+    let assemblyFormat = "$input attr-dict `:` type($input)";
+}
 
 
 #endif // DLC_OPS

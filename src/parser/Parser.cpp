@@ -133,7 +133,7 @@ static GraphInfo parseGraph(const onnx::GraphProto &graph) {
         g.initializers[init.name()] = parseTensor(init);
     }
     
-    for (const auto &node : graph.node())
+    for (const auto &node : graph.node()) {
         if (node.op_type() == "Constant") {
             for (const auto &attr : node.attribute()) {
                 if (attr.name() == "value" && attr.has_t()) {
@@ -144,6 +144,7 @@ static GraphInfo parseGraph(const onnx::GraphProto &graph) {
         } else {
         g.nodes.push_back(parseNode(node));
         }
+    }
     for (const auto &in : graph.input())
         g.inputs.push_back(parseValueInfo(in));
     for (const auto &out : graph.output())

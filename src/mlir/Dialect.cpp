@@ -11,15 +11,13 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include <algorithm>
 #include <string>
-
-using namespace mlir;
-using namespace mlir::dlc;
 
 #include "dlc/Dialect.cpp.inc"
 
@@ -38,6 +36,9 @@ void mlir::dlc::DlcDialect::initialize() {
 
 #define GET_OP_CLASSES
 #include "dlc/Ops.cpp.inc"
+
+namespace mlir {
+namespace dlc {
 
 LogicalResult ConstantOp::verify() {
     // Get the attribute value and the result type
@@ -76,3 +77,6 @@ LogicalResult AddOp::verify() {
 
     return success();
 }
+
+}   // namespace dlc
+}   // namespace mlir

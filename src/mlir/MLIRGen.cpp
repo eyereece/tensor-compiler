@@ -99,7 +99,18 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
             }
         }
         if (node.op_type == "Add") {
+            if (operands.size() < 2) {
+                llvm::errs() << "Error: Add op requires 2 operands\n";
+                return nullptr;
+            }
             valueMap[node.outputs[0]] = b.create<AddOp>(operands[0], operands[1]);
+        }
+        else if (node.op_type == "Relu") {
+            if (operands.empty()) {
+                llvm::errs() << "Error: Relu op requires 1 operand\n";
+                return nullptr;
+            }
+            valueMap[node.outputs[0]] = b.create<ReluOp>(operands[0]);
         }
     }
 

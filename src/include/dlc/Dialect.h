@@ -7,6 +7,7 @@
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 
 // Include auto-generated header file containing the declaration of the dlc dialect
 #include "dlc/Dialect.h.inc"
