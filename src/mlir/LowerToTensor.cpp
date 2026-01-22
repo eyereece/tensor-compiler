@@ -64,7 +64,7 @@ struct AddOpLowering : public OpConversionPattern<dlc::AddOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// Pattern: dlc.add -> linalg.add
+// Pattern: dlc.relu -> linalg.generic
 //===----------------------------------------------------------------------===//
 struct ReluOpLowering : public OpConversionPattern<dlc::ReluOp> {
     using OpConversionPattern<dlc::ReluOp>::OpConversionPattern;
@@ -112,6 +112,59 @@ struct ReluOpLowering : public OpConversionPattern<dlc::ReluOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// Pattern: dlc.matmul -> linalg.matmul
+//===----------------------------------------------------------------------===//
+struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
+    using OpConversionPattern<dlc::MatMulOp>::OpConversionPattern;
+
+    LogicalResult matchAndRewrite(dlc::MatMulOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const final {
+        auto loc = op.getLoc();
+        auto lhs = adaptor.getLhs();
+        auto rhs = adaptor.getRhs();
+        auto resultType = cast<RankedTensorType>(op.getType());
+
+        // Handle Rank-1 to Rank-2 promotion for LHS [K] -> [1, K]
+        if (llvm::cast<RankedTensorType>(lhs.getType()).getRank() == 1) {
+            auto shape = llvm::cast<RankedTensorType>(lhs.getType()).getShape();
+            auto newType = RankedTensorType::get({1, shape[0]},
+                                                llvm::cast<RankedTensorType>(lhs.getType()).getElementType());
+            
+            // Reassociation maps from [dim] -> [0, dim]
+            SmallVector<ReassociationIndices> reassoc = {{0, 1}};
+            lhs = tensor::ExpandShapeOp::create(rewriter, loc, newType, lhs, reassoc);
+        }
+
+        // Handle Rank-1 to Rank-2 promotion for RHS [K] -> [K, 1]
+        if (llvm::cast<RankedTensorType>(rhs.getType()).getRank() == 1) {
+            auto shape = llvm::cast<RankedTensorType>(rhs.getType()).getShape();
+            auto newType = RankedTensorType::get({shape[0], 1},
+                                                llvm::cast<RankedTensorType>(rhs.getType()).getElementType());
+
+            SmallVector<ReassociationIndices> reassoc = {{0, 1}};
+            rhs = tensor::ExpandShapeOp::create(rewriter, loc, newType, rhs, reassoc);
+        }
+
+        // Create the destination tensor for Destination Passing Style (DPS)
+        auto initTensor = tensor::EmptyOp::create(
+            rewriter, loc, resultType.getShape(), resultType.getElementType()
+        );
+
+        // Lower to linalg.matmul
+        auto matmulOp = linalg::MatmulOp::create(
+            rewriter,
+            loc,
+            resultType,
+            ValueRange{lhs, rhs},   // ins
+            ValueRange{initTensor.getResult()}
+        );
+
+        rewriter.replaceOp(op, matmulOp->getResults());
+        return success();
+    }
+};
+
+//===----------------------------------------------------------------------===//
 // Pass Definition
 //===----------------------------------------------------------------------===//
 struct DlcToTensorLoweringPass
@@ -134,7 +187,7 @@ struct DlcToTensorLoweringPass
             target.addIllegalDialect<dlc::DlcDialect>();
 
             RewritePatternSet patterns(&getContext());
-            patterns.add<ConstantOpLowering, AddOpLowering, ReluOpLowering>(&getContext());
+            patterns.add<ConstantOpLowering, AddOpLowering, ReluOpLowering, MatMulOpLowering>(&getContext());
 
             if (failed(applyPartialConversion(getOperation(), target, std::move(patterns))))
                 signalPassFailure();
