@@ -81,5 +81,17 @@ def ReluOp : Dlc_Op<"relu", [Pure, SameOperandsAndResultType]> {
     let assemblyFormat = "$input attr-dict `:` type($input)";
 }
 
+//===----------------------------------------------------------------------===//
+// MatMulOp
+//===----------------------------------------------------------------------===//
+def MatMulOp : Dlc_Op<"matmul"> {
+    let summary = "matrix multiplication";
+    let arguments = (ins F32Tensor:$lhs, F32Tensor:$rhs);
+    let results = (outs F32Tensor);
+    let hasVerifier = 1;
+    let builders = [
+        OpBuilder<(ins "Value":$lhs, "Value":$rhs)>
+    ];
+}
 
 #endif // DLC_OPS

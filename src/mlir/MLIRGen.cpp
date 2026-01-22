@@ -80,7 +80,6 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
     for (const NodeInfo &node : model.graph.nodes) {
         mlir::Location loc = getLoc(node, builder);
         b.setLoc(loc);
-        // TEMP
         llvm::SmallVector<mlir::Value, 2> operands;
         for (const std::string &inName : node.inputs) {
             if (valueMap.count(inName)) {
@@ -111,6 +110,12 @@ mlirGen(mlir::MLIRContext &context, ::dlc::ModelInfo &model) {
                 return nullptr;
             }
             valueMap[node.outputs[0]] = b.create<ReluOp>(operands[0]);
+        } else if (node.op_type == "MatMul") {
+            if (operands.size() < 2) {
+                llvm::errs() << "Error: MatMul op requires 2 operands\n";
+                return nullptr;
+            }
+            valueMap[node.outputs[0]] = b.create<MatMulOp>(operands[0], operands[1]);
         }
     }
 

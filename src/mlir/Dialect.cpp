@@ -40,6 +40,10 @@ void mlir::dlc::DlcDialect::initialize() {
 namespace mlir {
 namespace dlc {
 
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
 LogicalResult ConstantOp::verify() {
     // Get the attribute value and the result type
     auto tensorAttr = llvm::dyn_cast<DenseElementsAttr>(getValue());
@@ -57,6 +61,10 @@ LogicalResult ConstantOp::verify() {
     }
     return success();
 }
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
 
 LogicalResult AddOp::verify() {
     // Get the types of the operands and the result
@@ -78,5 +86,71 @@ LogicalResult AddOp::verify() {
     return success();
 }
 
+//===----------------------------------------------------------------------===//
+// MatmulOp
+//===----------------------------------------------------------------------===//
+
+void MatMulOp::build(OpBuilder &builder, OperationState &state,
+                    Value lhs, Value rhs) {
+    auto lhsType = llvm::cast<RankedTensorType>(lhs.getType());
+    auto rhsType = llvm::cast<RankedTensorType>(rhs.getType());
+
+    // MatMul Shape Logic: (M x K) * (K x N) -> (M x N)
+    auto lhsShape = lhsType.getShape();
+    auto rhsShape = rhsType.getShape();
+
+    // Determine M (Rows): If 1D, treat it as 1 row
+    int64_t m = (lhsShape.size() == 1) ? 1 : lhsShape[0];
+
+    // Determine N (Cols): If 2D, take index 1. If 1D, treat it as 1 column
+    int64_t n = (rhsShape.size() == 1) ? 1 : rhsShape[1];
+
+    // Result is always treated as 2D [M, N]
+    auto resultType = RankedTensorType::get({m, n}, lhsType.getElementType());
+
+    // Push the calculated result type and the inputs into the state
+    state.addTypes(resultType);
+    state.addOperands({lhs, rhs});
+}
+
+LogicalResult MatMulOp::verify() {
+    auto lhsShape = llvm::cast<RankedTensorType>(getLhs().getType()).getShape();
+    auto rhsShape = llvm::cast<RankedTensorType>(getRhs().getType()).getShape();
+    auto resShape = llvm::cast<RankedTensorType>(getResult().getType()).getShape();
+
+    // Input Rank check
+    if (lhsShape.size() < 1 || lhsShape.size() > 2 ||
+        rhsShape.size() < 1 || rhsShape.size() > 2) {
+        return emitOpError("LHS and RHS must be either 1D or 2D tensors");
+    }
+
+    // Inner Dimension (K) check
+    int64_t lhsK = lhsShape.back();
+    int64_t rhsK = rhsShape[0];
+    if (lhsK != rhsK) {
+        return emitOpError("inner dimensions (K) must match: ")
+                << lhsK << " (LHS) != " << rhsK << " (RHS)";
+    }
+
+    // Result Shape Verification
+    // The expected rows (M)
+    int64_t expectedM = (lhsShape.size() == 1) ? 1 : lhsShape[0];
+    // The expected columns (N)
+    int64_t expectedN = (rhsShape.size() == 1) ? 1 : rhsShape[1];
+
+    // Result Check
+    if (resShape.size() == 1) {
+        if (resShape[0] != (expectedM * expectedN)) {
+            return emitOpError("1D result size mismatch");
+        }
+    } else if (resShape.size() == 2) {
+        if (resShape[0] != expectedM || resShape[1] != expectedN) {
+            return emitOpError("2D result shape mismatch");
+        }
+    } else {
+        return emitOpError("result must be 1D or 2D");
+    }
+    return success();
+}
 }   // namespace dlc
 }   // namespace mlir
