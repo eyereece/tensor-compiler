@@ -1,0 +1,99 @@
+ir_version: 8
+producer_name: "dlc-compiler"
+graph {
+  node {
+    output: "const_out_1"
+    name: "constant_op_1"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        data_type: 1
+        name: "const_tensor_1"
+        raw_data: "\000\000\200?\000\000\200?"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    output: "const_out_2"
+    name: "constant_op_2"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        dims: 1
+        data_type: 1
+        name: "const_tensor_2"
+        raw_data: "\000\000@@\000\000@@"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    input: "x"
+    input: "stem.1.weight"
+    output: "out1"
+    name: "add_weights"
+    op_type: "Add"
+  }
+  node {
+    input: "out1"
+    input: "const_out_1"
+    output: "out2"
+    name: "add_const"
+    op_type: "Add"
+  }
+  node {
+    input: "out2"
+    output: "out3"
+    name: "relu_activation"
+    op_type: "Relu"
+  }
+  node {
+    input: "out3"
+    input: "const_out_2"
+    output: "final_out"
+    name: "matmul_node"
+    op_type: "MatMul"
+  }
+  name: "MatMulGraph"
+  initializer {
+    dims: 2
+    data_type: 1
+    name: "stem.1.weight"
+    raw_data: "\000\000\240@\000\000 \301"
+  }
+  input {
+    name: "x"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+  output {
+    name: "final_out"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 1
+          }
+        }
+      }
+    }
+  }
+}
+opset_import {
+  domain: ""
+  version: 23
+}
