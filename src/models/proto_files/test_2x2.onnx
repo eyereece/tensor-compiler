@@ -1,0 +1,97 @@
+ir_version: 8
+graph {
+  node {
+    output: "const_out_1"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        data_type: 1
+        float_data: 1
+        float_data: 1
+        name: "const_tensor_1"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    output: "const_out_2"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        dims: 2
+        data_type: 1
+        float_data: -0.0405477434
+        float_data: -1.63174748
+        float_data: 0.416361511
+        float_data: 0.566266358
+        name: "const_tensor_2"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    input: "x"
+    input: "stem.1.weight"
+    output: "out1"
+    op_type: "Add"
+  }
+  node {
+    input: "out1"
+    input: "const_out_1"
+    output: "out2"
+    op_type: "Add"
+  }
+  node {
+    input: "out2"
+    output: "out3"
+    op_type: "Relu"
+  }
+  node {
+    input: "out3"
+    input: "const_out_2"
+    output: "final_out"
+    op_type: "MatMul"
+  }
+  name: "MatMul_test_2x2"
+  initializer {
+    dims: 2
+    data_type: 1
+    float_data: -0.735605896
+    float_data: -1.58728755
+    name: "stem.1.weight"
+  }
+  input {
+    name: "x"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+  output {
+    name: "final_out"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+}
+opset_import {
+  domain: ""
+  version: 18
+}

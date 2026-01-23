@@ -145,9 +145,24 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
             rhs = tensor::ExpandShapeOp::create(rewriter, loc, newType, rhs, reassoc);
         }
 
+        // Create the uninitialized allocation
+        auto emptyTensor = tensor::EmptyOp::create(
+            rewriter,
+            loc,
+            resultType.getShape(),
+            resultType.getElementType()
+        );
+
+        // Create a zero constant for the element type
+        auto zeroAttr = rewriter.getFloatAttr(resultType.getElementType(), 0.0);
+        auto zeroConstant = arith::ConstantOp::create(rewriter, loc, zeroAttr);
+
         // Create the destination tensor for Destination Passing Style (DPS)
-        auto initTensor = tensor::EmptyOp::create(
-            rewriter, loc, resultType.getShape(), resultType.getElementType()
+        auto initTensor = linalg::FillOp::create(
+            rewriter,
+            loc,
+            ValueRange{zeroConstant},
+            ValueRange{emptyTensor.getResult()}
         );
 
         // Lower to linalg.matmul
@@ -156,7 +171,7 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
             loc,
             resultType,
             ValueRange{lhs, rhs},   // ins
-            ValueRange{initTensor.getResult()}
+            ValueRange{initTensor.getResult(0)}
         );
 
         rewriter.replaceOp(op, matmulOp->getResults());

@@ -9,6 +9,7 @@
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
+#include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
@@ -37,10 +38,17 @@ struct LowerToLLVMPass
         // Collect all the patterns
         RewritePatternSet patterns(&getContext());
 
-        // Patterns for the dialects used
+        // PATTERNS FOR DIALECTS USED
+        // handles turning expand_shape to specialized memref descriptor
+        memref::populateExpandStridedMetadataPatterns(patterns);
+
+        // Standard dialect patterns
         populateSCFToControlFlowConversionPatterns(patterns);
         arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
+
+        // Handle metadata ops
         populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
+
         cf::populateControlFlowToLLVMConversionPatterns(typeConverter, patterns);
         populateFuncToLLVMConversionPatterns(typeConverter, patterns);
 

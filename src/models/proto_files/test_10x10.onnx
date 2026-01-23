@@ -1,0 +1,209 @@
+ir_version: 8
+graph {
+  node {
+    output: "const_out_1"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 10
+        data_type: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        float_data: 1
+        name: "const_tensor_1"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    output: "const_out_2"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 10
+        dims: 10
+        data_type: 1
+        float_data: 0.450695187
+        float_data: -0.879307926
+        float_data: 0.921538472
+        float_data: 0.463084131
+        float_data: -0.427449226
+        float_data: -0.146557495
+        float_data: -0.416367322
+        float_data: 1.69945943
+        float_data: -2.65498614
+        float_data: 1.43356264
+        float_data: -0.665865421
+        float_data: -0.236581847
+        float_data: -0.386195689
+        float_data: -0.628393769
+        float_data: 0.380924731
+        float_data: 0.925194323
+        float_data: -0.327840149
+        float_data: -0.565763533
+        float_data: -0.573308945
+        float_data: 1.75760138
+        float_data: -0.629356623
+        float_data: 0.0205456
+        float_data: 0.139901415
+        float_data: 0.00131519127
+        float_data: -0.173362136
+        float_data: -0.524166286
+        float_data: 2.02023482
+        float_data: 0.348582804
+        float_data: 1.24530768
+        float_data: 0.122164689
+        float_data: -1.56900287
+        float_data: -0.930019677
+        float_data: -0.416433275
+        float_data: -1.22577977
+        float_data: 1.32172477
+        float_data: 0.493194163
+        float_data: -0.0516346693
+        float_data: 0.305729091
+        float_data: 1.0843091
+        float_data: -0.106178254
+        float_data: -0.18560116
+        float_data: -0.931854069
+        float_data: 0.597215414
+        float_data: 0.272696197
+        float_data: -0.3635557
+        float_data: -0.625198662
+        float_data: -0.0040271855
+        float_data: -1.73148811
+        float_data: 1.52696908
+        float_data: 0.144467473
+        float_data: -0.838038146
+        float_data: -1.32966352
+        float_data: 0.673086882
+        float_data: -0.226099446
+        float_data: -0.521086812
+        float_data: -0.89796716
+        float_data: 0.245690554
+        float_data: 1.55877125
+        float_data: 1.96071172
+        float_data: -0.425690472
+        float_data: -1.36874437
+        float_data: -1.04121935
+        float_data: 1.26843357
+        float_data: -0.00329087651
+        float_data: 1.21726644
+        float_data: 0.513764083
+        float_data: -0.238409549
+        float_data: 0.608914614
+        float_data: -0.344349772
+        float_data: -1.55430281
+        float_data: 1.09294164
+        float_data: 1.15947652
+        float_data: 2.29691076
+        float_data: -0.457659185
+        float_data: -2.67534041
+        float_data: 0.930377245
+        float_data: 1.22846782
+        float_data: -1.2309885
+        float_data: 3.02193809
+        float_data: 0.445276
+        float_data: 1.20324433
+        float_data: 1.31755507
+        float_data: 1.66655564
+        float_data: 0.63852036
+        float_data: -0.864052594
+        float_data: -0.762776911
+        float_data: -0.592303
+        float_data: -0.977866471
+        float_data: 0.810761333
+        float_data: -0.0227206107
+        float_data: -0.666004658
+        float_data: -2.71125627
+        float_data: -1.26204622
+        float_data: 0.336533219
+        float_data: 0.344449371
+        float_data: -0.737255871
+        float_data: 1.63775
+        float_data: -0.959002912
+        float_data: 1.72283101
+        float_data: -0.0130074602
+        name: "const_tensor_2"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    input: "x"
+    input: "stem.1.weight"
+    output: "out1"
+    op_type: "Add"
+  }
+  node {
+    input: "out1"
+    input: "const_out_1"
+    output: "out2"
+    op_type: "Add"
+  }
+  node {
+    input: "out2"
+    output: "out3"
+    op_type: "Relu"
+  }
+  node {
+    input: "out3"
+    input: "const_out_2"
+    output: "final_out"
+    op_type: "MatMul"
+  }
+  name: "MatMul_test_10x10"
+  initializer {
+    dims: 10
+    data_type: 1
+    float_data: -0.782497287
+    float_data: -1.59700787
+    float_data: 0.42319411
+    float_data: 0.46244356
+    float_data: -0.530315
+    float_data: -0.597589612
+    float_data: 0.117258094
+    float_data: 0.869969726
+    float_data: -1.60472083
+    float_data: -1.04429
+    name: "stem.1.weight"
+  }
+  input {
+    name: "x"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 10
+          }
+        }
+      }
+    }
+  }
+  output {
+    name: "final_out"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 10
+          }
+        }
+      }
+    }
+  }
+}
+opset_import {
+  domain: ""
+  version: 18
+}
