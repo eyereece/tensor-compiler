@@ -94,19 +94,36 @@ void MatMulOp::build(OpBuilder &builder, OperationState &state,
                     Value lhs, Value rhs) {
     auto lhsType = llvm::cast<RankedTensorType>(lhs.getType());
     auto rhsType = llvm::cast<RankedTensorType>(rhs.getType());
+    auto elemType = lhsType.getElementType();
 
     // MatMul Shape Logic: (M x K) * (K x N) -> (M x N)
     auto lhsShape = lhsType.getShape();
     auto rhsShape = rhsType.getShape();
 
-    // Determine M (Rows): If 1D, treat it as 1 row
-    int64_t m = (lhsShape.size() == 1) ? 1 : lhsShape[0];
+    bool lhsIsVector = lhsShape.size() == 1;
+    bool rhsIsVector = rhsShape.size() == 1;
 
-    // Determine N (Cols): If 2D, take index 1. If 1D, treat it as 1 column
-    int64_t n = (rhsShape.size() == 1) ? 1 : rhsShape[1];
+    // Inner dimension check (K)
+    int64_t lhsK = lhsShape.back();
+    int64_t rhsK = rhsShape.front();
+    assert(lhsK == rhsK && "matmul inner dimensions must match");
 
-    // Result is always treated as 2D [M, N]
-    auto resultType = RankedTensorType::get({m, n}, lhsType.getElementType());
+    RankedTensorType resultType;
+
+    if (lhsIsVector && !rhsIsVector) {
+        // [K] @ [K, N] -> [N]
+        resultType = RankedTensorType::get(
+            {rhsShape[1]}, elemType
+        );
+    } else if (!lhsIsVector && rhsIsVector) {
+        // [M, K] @ [K] -> [M]
+        resultType = RankedTensorType::get(
+            {lhsShape[0]}, elemType
+        );
+    } else {
+        // [K] @ [K] -> scalar
+        resultType = RankedTensorType::get({}, elemType);
+    }
 
     // Push the calculated result type and the inputs into the state
     state.addTypes(resultType);
@@ -132,24 +149,34 @@ LogicalResult MatMulOp::verify() {
                 << lhsK << " (LHS) != " << rhsK << " (RHS)";
     }
 
-    // Result Shape Verification
-    // The expected rows (M)
-    int64_t expectedM = (lhsShape.size() == 1) ? 1 : lhsShape[0];
-    // The expected columns (N)
-    int64_t expectedN = (rhsShape.size() == 1) ? 1 : rhsShape[1];
+    int64_t lhsRank = lhsShape.size();
+    int64_t rhsRank = rhsShape.size();
+    int64_t resRank = resShape.size();
 
-    // Result Check
-    if (resShape.size() == 1) {
-        if (resShape[0] != (expectedM * expectedN)) {
-            return emitOpError("1D result size mismatch");
+    // vector @ matrix -> vector [N]
+    if (lhsRank == 1 && rhsRank == 2) {
+        if (resRank != 1 || resShape[0] != rhsShape[1]) {
+            return emitOpError("expected result shape [N] for vector x matrix");
         }
-    } else if (resShape.size() == 2) {
-        if (resShape[0] != expectedM || resShape[1] != expectedN) {
-            return emitOpError("2D result shape mismatch");
-        }
-    } else {
-        return emitOpError("result must be 1D or 2D");
     }
+    // matrix @ vector -> vector [M]
+    else if (lhsRank == 2 && rhsRank == 1) {
+        if (resRank != 1 || resShape[0] != lhsShape[0]) {
+            return emitOpError("expected result shape [M] for matrix x vector");
+        }
+    }
+    // matrix @ matrix -> matrix [M, N]
+    else if (lhsRank == 2 && rhsRank == 2) {
+        if (resRank != 2 ||
+            resShape[0] != lhsShape[0] ||
+            resShape[1] != rhsShape[1]) {
+                return emitOpError("expected result shape [M, N] for matrix x matrix");
+            }
+    }
+    else {
+        return emitOpError("vector x vector matmul not supported");
+    }
+
     return success();
 }
 }   // namespace dlc

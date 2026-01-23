@@ -39,26 +39,36 @@ struct AddOpLowering : public OpConversionPattern<dlc::AddOp> {
         auto loc = op.getLoc();
         auto resultType = cast<RankedTensorType>(op.getType());
 
-        // 1. Create the destination tensor (required by Linalg on Tensors)
-        // For phase 0, Create an empty tensor to hold the result.
-        auto initTensor = tensor::EmptyOp::create(
+        // Create the destination tensor (required by Linalg on Tensors)
+        auto emptyTensor = tensor::EmptyOp::create(
             rewriter,
             loc,
-            resultType,
-            ValueRange{}
+            resultType.getShape(),
+            resultType.getElementType()
         );
 
-        // 2. Map dlc.add to linalg.add
+        // Create zero constant for the element type
+        auto zeroAttr = rewriter.getFloatAttr(resultType.getElementType(), 0.0);
+        auto zeroConstant = arith::ConstantOp::create(rewriter, loc, zeroAttr);
+
+        auto initTensor = linalg::FillOp::create(
+            rewriter,
+            loc,
+            ValueRange{zeroConstant},
+            ValueRange{emptyTensor.getResult()}
+        );
+
+
+        // Map dlc.add to linalg.add
         // This handles both Rank-0 (scalar) and Rank-1 (vector) protos.
-        rewriter.replaceOp(op, linalg::AddOp::create(
+        auto addOp = linalg::AddOp::create(
             rewriter,
             loc,
-            resultType,
-            ValueRange{adaptor.getLhs(), adaptor.getRhs()},
-            ValueRange{initTensor.getResult()} 
-        )
+            TypeRange{resultType},                          // Result Types
+            ValueRange{adaptor.getLhs(), adaptor.getRhs()}, // ins
+            ValueRange{initTensor.getResult(0)}                 // outs
         );
-
+        rewriter.replaceOp(op, addOp->getResults());
         return success();
     }
 };
@@ -122,7 +132,6 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
         auto loc = op.getLoc();
         auto lhs = adaptor.getLhs();
         auto rhs = adaptor.getRhs();
-        auto resultType = cast<RankedTensorType>(op.getType());
 
         // Handle Rank-1 to Rank-2 promotion for LHS [K] -> [1, K]
         if (llvm::cast<RankedTensorType>(lhs.getType()).getRank() == 1) {
@@ -144,6 +153,14 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
             SmallVector<ReassociationIndices> reassoc = {{0, 1}};
             rhs = tensor::ExpandShapeOp::create(rewriter, loc, newType, rhs, reassoc);
         }
+
+        auto lhsType = cast<RankedTensorType>(lhs.getType());
+        auto rhsType = cast<RankedTensorType>(rhs.getType());
+
+        int64_t M = lhsType.getShape()[0];
+        int64_t N = rhsType.getShape()[1];
+
+        auto resultType = RankedTensorType::get({M, N}, lhsType.getElementType());
 
         // Create the uninitialized allocation
         auto emptyTensor = tensor::EmptyOp::create(
@@ -173,8 +190,18 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
             ValueRange{lhs, rhs},   // ins
             ValueRange{initTensor.getResult(0)}
         );
+        
+        Value result = matmulOp.getResult(0);
 
-        rewriter.replaceOp(op, matmulOp->getResults());
+        if (op.getType().getRank() == 1) {
+            // Collapse [1, N] -> [N]
+            SmallVector<ReassociationIndices> reassoc = {{0, 1}};
+            result = tensor::CollapseShapeOp::create(
+                rewriter, loc, op.getType(), result, reassoc
+            );
+        }
+
+        rewriter.replaceOp(op, result);
         return success();
     }
 };
