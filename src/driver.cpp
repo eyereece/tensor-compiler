@@ -200,6 +200,7 @@ static int dumpLLVMIR(mlir::ModuleOp module) {
 static int runJit(mlir::ModuleOp module,
                     int64_t outRank,
                     const std::vector<int64_t>& inRanks,
+                    const std::vector<std::vector<int64_t>>& inShapes,
                     const llvm::cl::list<float>& cliData) {
     // Initialize LLVM targets for the host machine
     llvm::InitializeNativeTarget();
@@ -224,54 +225,75 @@ static int runJit(mlir::ModuleOp module,
 
     // Prepare input data
     std::vector<std::vector<int64_t>> inputDescriptors;
+    inputDescriptors.reserve(inRanks.size());
+
     std::vector<std::vector<float>> inputDataStore; // To keep memory alive
-    std::vector<int64_t*> inputPtrs;
+    inputDataStore.reserve(inRanks.size());
 
     size_t dataOffset = 0;
 
-    for (int64_t r : inRanks) {
-        // Calculate how many elements this input needs
-        // Assume fixed size 2 based on current models
-        int64_t numElements = (r == 0) ? 1 : 2;
+    // Dynamic Shape Handling for Inputs
+    for (size_t i = 0; i < inRanks.size(); ++i) {
+        int64_t rank = inRanks[i];
+        const auto& shape = inShapes[i];
 
+        int64_t numElements = 1;
+        for (int64_t dim : shape) numElements *= dim;
+
+        // Fill data from CLI or defaults
         std::vector<float> data;
-        for (int64_t i = 0; i < numElements; ++i) {
+        for (int64_t j = 0; j < numElements; ++j) {
             if (dataOffset < cliData.size()) {
                 data.push_back(cliData[dataOffset++]);
             } else {
-                data.push_back(0.0f);   // Default fallback
+                data.push_back(0.0f);
             }
         }
-        inputDataStore.push_back(data);
+        inputDataStore.push_back(std::move(data));
 
-        size_t slots = 3 + (2 * r);
+        // Build the MemRef Descriptor
+        size_t slots = 3 + (2 * rank);
         inputDescriptors.emplace_back(slots, 0);
         auto& desc = inputDescriptors.back();
 
-        desc[0] = reinterpret_cast<int64_t>(inputDataStore.back().data());  // allocated
-        desc[1] = desc[0];  // aligned
-        desc[2] = 0;    // offset
-        if (r > 0) {
-            desc[3] = numElements;    // size
-            desc[4] = 1;    // stride
+        desc[0] = reinterpret_cast<int64_t>(inputDataStore.back().data());  // Allocated
+        desc[1] = desc[0];
+        desc[2] = 0;
+
+        // Fill Sizes and strides
+        for (int64_t j = 0; j < rank; ++j) {
+            desc[3 + j] = shape[j]; // Size
+
+            // Calculate stride (assuming contiguous row-major)
+            int64_t stride = 1;
+            for (int64_t k = j + 1; k < rank; ++k) {
+                stride *= shape[k];
+            }
+            desc[3 + rank + j] = stride;    // Stride
         }
-        inputPtrs.push_back(desc.data());
     }
 
     // Prepare output
     size_t outSlots = 3 + (2 * outRank);
     std::vector<int64_t> outDesc(outSlots, 0);
-    int64_t *outPtr = outDesc.data();
 
     // The packed argument array
     // result first, then all inputs
     std::vector<void*> args;
-    args.push_back(&outPtr);
+    void* outDescPtr = outDesc.data();
+    args.push_back(&outDescPtr);
+
+    // Input Pointers (pointers to each descriptor array)
+    // Use a separate vector to store these pointers to ensure
+    // their addresses(&inputPtrs[i]) are stable
+    std::vector<int64_t*> inputPtrs;
+    for (auto& desc : inputDescriptors) {
+        inputPtrs.push_back(desc.data());
+    }
+
     for (size_t i = 0; i < inputPtrs.size(); ++i) {
         args.push_back(&inputPtrs[i]);
     }
-
-    // END TEMP
 
     // Invoke
     if (engine->invokePacked("_mlir_ciface_main", args)) {
@@ -388,9 +410,11 @@ int main(int argc, char **argv) {
 
         // Get input ranks
         std::vector<int64_t> inRanks;
+        std::vector<std::vector<int64_t>> inShapes;
         for (auto type : mainFunc.getArgumentTypes()) {
             auto tensorType = llvm::cast<mlir::RankedTensorType>(type);
             inRanks.push_back(tensorType.getRank());
+            inShapes.push_back(tensorType.getShape().vec());
         }
 
         // Get output rank
@@ -398,7 +422,7 @@ int main(int argc, char **argv) {
         int64_t outRank = outTensorType.getRank();
 
         if (processMLIR(context, *module)) return 1;
-        return runJit(*module, outRank, inRanks, inputDataList);
+        return runJit(*module, outRank, inRanks, inShapes, inputDataList);
     }
     default:
         llvm::errs()
