@@ -200,6 +200,7 @@ static int dumpLLVMIR(mlir::ModuleOp module) {
 static int runJit(mlir::ModuleOp module,
                     int64_t outRank,
                     const std::vector<int64_t>& inRanks,
+                    const std::vector<int64_t>& outShape,
                     const std::vector<std::vector<int64_t>>& inShapes,
                     const llvm::cl::list<float>& cliData) {
     // Initialize LLVM targets for the host machine
@@ -222,6 +223,20 @@ static int runJit(mlir::ModuleOp module,
         return -1;
     }
     auto &engine = maybeEngine.get();
+
+    // Calculate total expected elements across all inputs first
+    size_t totalExpected = 0;
+    for (const auto& shape : inShapes) {
+        int64_t product = 1;
+        for (int64_t dim : shape) product *= dim;
+        totalExpected += product;
+    }
+
+    // Check against the actual input
+    if (totalExpected != cliData.size()) {
+        llvm::errs() << "Warning: provided " << cliData.size()
+                    << " elements, but the model expects " << totalExpected << ".\n";
+    }
 
     // Prepare input data
     std::vector<std::vector<int64_t>> inputDescriptors;
@@ -274,8 +289,29 @@ static int runJit(mlir::ModuleOp module,
     }
 
     // Prepare output
+    int64_t totalOutElements = 1;
+    for (int64_t dim : outShape) totalOutElements *= dim;
+    float* outData = (float*)malloc(totalOutElements * sizeof(float));
+
+    // Prepare output descriptor
     size_t outSlots = 3 + (2 * outRank);
     std::vector<int64_t> outDesc(outSlots, 0);
+
+    outDesc[0] = reinterpret_cast<int64_t>(outData);    // Allocated
+    outDesc[1] = reinterpret_cast<int64_t>(outData);    // Aligned
+    outDesc[2] = 0;
+
+    // Fill Sizes and strides for the output
+    for (int64_t i = 0; i < outRank; ++i) {
+        outDesc[3 + i] = outShape[i];
+
+        // Calculate stride
+        int64_t stride = 1;
+        for (int64_t k = i + 1; k < outRank; ++k) {
+            stride *= outShape[k];
+        }
+        outDesc[3 + outRank + i] = stride;
+    }
 
     // The packed argument array
     // result first, then all inputs
@@ -306,19 +342,33 @@ static int runJit(mlir::ModuleOp module,
     float *aligned = reinterpret_cast<float *>(outDesc[1]);
     int64_t offset = outDesc[2];
 
+    // Helper to print nested dimensions
+    auto printRef = [&](auto self, int64_t dim, int64_t currentOffset) -> void {
+        if (dim == outRank) {
+            llvm::outs() << llvm::format("%.7f", aligned[currentOffset]);
+            return;
+        }
+
+        llvm::outs() << "[";
+        int64_t size = outDesc[3 + dim];
+        int64_t stride = outDesc[3 + outRank + dim];
+
+        for (int64_t i = 0; i < size; ++i) {
+            self(self, dim + 1, currentOffset + i * stride);
+            if (i < size - 1) llvm::outs() << ", ";
+        }
+        llvm::outs() << "]";
+    };
+
     llvm::outs() << "Result Shape: [ ";
-    int64_t totalElements = 1;  // initial number, loop will calculate actual totalElements
     for (int64_t i = 0; i < outRank; ++i) {
         int64_t s = outDesc[3 + i];
         llvm::outs() << s << " ";
-        totalElements *= s;
     }
     llvm::outs() << "]\n";
 
     llvm::outs() << "Data: ";
-    for (int64_t i = 0; i < totalElements; ++i) {
-        llvm::outs() << llvm::format("%.7f ", aligned[offset + i]);
-    }
+    printRef(printRef, 0, offset);
     llvm::outs() << "\n";
     llvm::outs().flush();
 
@@ -417,12 +467,13 @@ int main(int argc, char **argv) {
             inShapes.push_back(tensorType.getShape().vec());
         }
 
-        // Get output rank
+        // Get output rank and shape
         auto outTensorType = llvm::cast<mlir::RankedTensorType>(mainFunc.getResultTypes()[0]);
         int64_t outRank = outTensorType.getRank();
+        std::vector<int64_t> outShape = outTensorType.getShape().vec();
 
         if (processMLIR(context, *module)) return 1;
-        return runJit(*module, outRank, inRanks, inShapes, inputDataList);
+        return runJit(*module, outRank, inRanks, outShape, inShapes, inputDataList);
     }
     default:
         llvm::errs()

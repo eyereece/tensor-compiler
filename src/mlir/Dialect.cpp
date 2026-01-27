@@ -120,8 +120,12 @@ void MatMulOp::build(OpBuilder &builder, OperationState &state,
         resultType = RankedTensorType::get(
             {lhsShape[0]}, elemType
         );
+    } else if (!lhsIsVector && !rhsIsVector) {
+        // [M, K] @ [K, N] -> [M, N]
+        resultType = RankedTensorType::get({lhsShape[0], rhsShape[1]}, elemType);
     } else {
         // [K] @ [K] -> scalar
+        // Fallback for vector-vector (dot product)
         resultType = RankedTensorType::get({}, elemType);
     }
 

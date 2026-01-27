@@ -1,0 +1,101 @@
+ir_version: 8
+producer_name: "dlc-compiler"
+graph {
+  node {
+    output: "const_out_1"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        dims: 2
+        data_type: 1
+        name: "const_tensor_1"
+        raw_data: "\000\000\000?\000\000\000?\000\000\000?\000\000\000?"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    output: "const_out_2"
+    op_type: "Constant"
+    attribute {
+      name: "value"
+      t {
+        dims: 2
+        dims: 2
+        data_type: 1
+        name: "const_tensor_2"
+        raw_data: "\000\000\000@\000\000\000\000\000\000\000\000\000\000\000@"
+      }
+      type: TENSOR
+    }
+  }
+  node {
+    input: "x"
+    input: "stem.1.weight"
+    output: "out1"
+    op_type: "Add"
+  }
+  node {
+    input: "out1"
+    input: "const_out_1"
+    output: "out2"
+    op_type: "Add"
+  }
+  node {
+    input: "out2"
+    output: "out3"
+    op_type: "Relu"
+  }
+  node {
+    input: "out3"
+    input: "const_out_2"
+    output: "final_out"
+    op_type: "MatMul"
+  }
+  name: "MatrixMatMulGraph"
+  initializer {
+    dims: 2
+    dims: 2
+    data_type: 1
+    name: "stem.1.weight"
+    raw_data: "\000\000\200?\000\000\000@\000\000@@\000\000\200@"
+  }
+  input {
+    name: "x"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+  output {
+    name: "final_out"
+    type {
+      tensor_type {
+        elem_type: 1
+        shape {
+          dim {
+            dim_value: 2
+          }
+          dim {
+            dim_value: 2
+          }
+        }
+      }
+    }
+  }
+}
+opset_import {
+  domain: ""
+  version: 11
+}
