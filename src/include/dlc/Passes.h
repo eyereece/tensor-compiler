@@ -11,6 +11,7 @@ class Pass;
 namespace dlc {
 std::unique_ptr<mlir::Pass> createLowerToTensorPass();
 std::unique_ptr<mlir::Pass> createLowerToLLVMPass();
+std::unique_ptr<mlir::Pass> createLinalgTilingPass();
 }   // namespace dlc
 }   // namespace mlir
 #endif // DLC_PASSES_H

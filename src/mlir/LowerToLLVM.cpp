@@ -15,6 +15,8 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 using namespace mlir;
 
@@ -31,6 +33,8 @@ struct LowerToLLVMPass
         // Define the target (what is legal)
         LLVMConversionTarget target(getContext());
         target.addLegalOp<mlir::ModuleOp>();
+        target.addLegalDialect<LLVM::LLVMDialect>();
+        // target.addIllegalOp<mlir::memref::SubViewOp>();
 
         // Define the Type Converter (How do types change)
         LLVMTypeConverter typeConverter(&getContext());
@@ -39,8 +43,9 @@ struct LowerToLLVMPass
         RewritePatternSet patterns(&getContext());
 
         // PATTERNS FOR DIALECTS USED
+
         // handles turning expand_shape to specialized memref descriptor
-        memref::populateExpandStridedMetadataPatterns(patterns);
+        // memref::populateExpandStridedMetadataPatterns(patterns);
 
         // Standard dialect patterns
         populateSCFToControlFlowConversionPatterns(patterns);

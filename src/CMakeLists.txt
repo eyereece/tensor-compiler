@@ -69,6 +69,7 @@ add_library(dlc_dialect STATIC
     mlir/Dialect.cpp
     mlir/MLIRGen.cpp
     mlir/LowerToTensor.cpp
+    mlir/TilingPass.cpp
     mlir/LowerToLLVM.cpp
 )
 add_dependencies(dlc_dialect DLC_OPS_GEN)
@@ -108,11 +109,14 @@ target_link_libraries(driver
         MLIRMemRefDialect
         MLIRBufferizationDialect
         MLIRFuncDialect
+        MLIRAffineDialect
 
         # Transformation & Bufferization Logic
         MLIRBufferizationTransforms
         MLIRLinalgTransforms
         MLIRTensorTransforms
+        MLIRArithTransforms
+        MLIRAffineTransforms
 
         # MLIRGen
         MLIRIR
@@ -124,6 +128,22 @@ target_link_libraries(driver
         LLVMSupport
         LLVMCore
 
+
+        # MLIR Translation & Execution Engine (emit llvm ir)
+        MLIRTargetLLVMIRExport
+        MLIRToLLVMIRTranslationRegistration
+        MLIRExecutionEngine
+
+        # Tiling
+        MLIRSCFDialect
+        MLIRSCFTransforms
+        MLIRValueBoundsOpInterface
+        MLIRArithUtils
+        MLIRLinalgUtils
+        MLIRTensorUtils
+        MLIRDialectUtils
+        MLIRArithValueBoundsOpInterfaceImpl
+
         # Conversion
         MLIRLLVMCommonConversion
         MLIRLLVMDialect
@@ -133,11 +153,7 @@ target_link_libraries(driver
         MLIRControlFlowToLLVM
         MLIRFuncToLLVM
         MLIRReconcileUnrealizedCasts
-
-        # MLIR Translation & Execution Engine (emit llvm ir)
-        MLIRTargetLLVMIRExport
-        MLIRToLLVMIRTranslationRegistration
-        MLIRExecutionEngine
+        MLIRAffineToStandard
 
         # LLVM Libraries
         ${llvm_libs}

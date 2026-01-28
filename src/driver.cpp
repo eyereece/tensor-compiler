@@ -31,22 +31,27 @@
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Arith/IR/ValueBoundsOpInterfaceImpl.h"
+#include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/IR/ValueBoundsOpInterfaceImpl.h"
 
 // Dump MLIR-LLVM
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 
 // Dump LLVM IR
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
-#include "mlir/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 
 // JIT
 #include "mlir/IR/BuiltinTypes.h"
@@ -184,7 +189,10 @@ static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
     if (emitAction >= DumpMLIRTensor) {
         // Lower DLC -> Tensor/Linalg
         pm.addPass(mlir::dlc::createLowerToTensorPass());
+
+        pm.addPass(mlir::dlc::createLinalgTilingPass());
         pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(mlir::createCSEPass());
     }
 
     if (emitAction >= DumpMLIRMemRef) {
@@ -205,6 +213,8 @@ static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
     }
 
     if (emitAction >= DumpMLIRLLVM || emitAction == DumpLLVMIR) {
+        pm.addPass(mlir::memref::createExpandStridedMetadataPass());
+        pm.addPass(mlir::createLowerAffinePass());
         pm.addPass(mlir::dlc::createLowerToLLVMPass());
         pm.addPass(mlir::createReconcileUnrealizedCastsPass());
     }
@@ -286,6 +296,11 @@ static int runJit(mlir::ModuleOp module,
     auto optPipeline = mlir::makeOptimizingTransformer(3, 0, nullptr);
     mlir::ExecutionEngineOptions engineOptions;
     engineOptions.transformer = optPipeline;
+    engineOptions.jitCodeGenOptLevel = llvm::CodeGenOptLevel::Aggressive;
+    engineOptions.sharedLibPaths = {
+        "/workspace/llvm-project/build/lib/libmlir_runner_utils.so",
+        "/workspace/llvm-project/build/lib/libmlir_c_runner_utils.so"
+    };
 
     auto maybeEngine = mlir::ExecutionEngine::create(module, engineOptions);
     if (!maybeEngine) {
@@ -460,7 +475,13 @@ int main(int argc, char **argv) {
     mlir::arith::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);
+    mlir::scf::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(registry);
+
+    // Register Value Bounds Op Interface
+    mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
+    mlir::scf::registerValueBoundsOpInterfaceExternalModels(registry);
+    mlir::tensor::registerValueBoundsOpInterfaceExternalModels(registry);
 
 
     // Attach the registry to the context
@@ -469,7 +490,8 @@ int main(int argc, char **argv) {
     context.loadDialect<mlir::dlc::DlcDialect,
                         mlir::cf::ControlFlowDialect,
                         mlir::arith::ArithDialect,
-                        mlir::func::FuncDialect>();
+                        mlir::func::FuncDialect,
+                        mlir::scf::SCFDialect>();
     
     mlir::OwningOpRef<mlir::ModuleOp> module;
     std::unique_ptr<onnx::ModelProto> model_ptr;

@@ -72,4 +72,4 @@ def verify_matmul(onnx_path, m, n, k):
         print("Check for logic errors or precision loss.")
     print("-" * 30)
 
-verify_matmul("../../models/matmul_512.onnx", 512, 512, 512)
+verify_matmul("../../models/onnx_files/matmul_1024.onnx", 1024, 1024, 1024)
