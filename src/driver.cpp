@@ -59,6 +59,7 @@
 #include <ostream>
 #include <chrono>
 #include <random>
+#include <fstream>
 
 namespace cl = llvm::cl;
 
@@ -66,6 +67,13 @@ namespace cl = llvm::cl;
 static cl::list<float> inputDataList(
     "input-data",
     cl::desc("Specify input data as a space-separated list of floats"),
+    cl::ZeroOrMore,
+    cl::CommaSeparated
+);
+
+static cl::list<std::string> inputFiles(
+    "input-files",
+    cl::desc("Specify input binary files as a comma-separated list of paths"),
     cl::ZeroOrMore,
     cl::CommaSeparated
 );
@@ -113,7 +121,8 @@ static cl::opt<enum Action>
 // Helper function to prepare data
 static std::vector<std::vector<float>> prepareInputData(
     const std::vector<std::vector<int64_t>>& inShapes,
-    const llvm::cl::list<float>& cliData) {
+    const llvm::cl::list<float>& cliData,
+    const llvm::cl::list<std::string>& cliFiles) {
 
         size_t totalExpected = 0;
         for (const auto& shape : inShapes) {
@@ -129,26 +138,39 @@ static std::vector<std::vector<float>> prepareInputData(
         }
 
         std::vector<std::vector<float>> inputDataStore;
-        inputDataStore.reserve(inShapes.size());
-        size_t dataOffset = 0;
+        size_t fileIdx = 0;
+        size_t cliOffset = 0;
 
-        // Use a fixed seed for benchmarking consistency
-        std::mt19937 generator(42);
-        std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+        // Fixed seed for fallback
+        std::mt19937 gen(42);
+        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
         for (const auto& shape : inShapes) {
             int64_t numElements = 1;
             for (int64_t dim : shape) numElements *= dim;
+            std::vector<float> data(numElements);
 
-            std::vector<float> data;
-            data.reserve(numElements);
-
-            for (int64_t j = 0; j < numElements; ++j) {
-                if (dataOffset < cliData.size()) {
-                    data.push_back(cliData[dataOffset++]);
-                } else {
-                    // AUTO-FILL
-                    data.push_back(distribution(generator));
+            if (fileIdx < cliFiles.size()) {
+                // Load from binary file
+                std::ifstream ifs(cliFiles[fileIdx++], std::ios::binary);
+                if (!ifs) {
+                    llvm::errs() << "Error: Could not open input file" << cliFiles[fileIdx-1] << "\n";
+                    exit(1);
+                }
+                ifs.read(reinterpret_cast<char*>(data.data()), numElements * sizeof(float));
+            } else if (cliOffset < cliData.size()) {
+                // Load from CLI
+                for (int64_t j = 0; j < numElements; ++j) {
+                    if (cliOffset < cliData.size()) {
+                        data[j] = cliData[cliOffset++];
+                    } else {
+                        data[j] = 0.0f;
+                    }
+                }
+            } else {
+                // Random data (for quick benchmarks)
+                for (int64_t j = 0; j < numElements; ++j) {
+                    data[j] = dist(gen);
                 }
             }
             inputDataStore.push_back(std::move(data));
@@ -364,6 +386,13 @@ static int runJit(mlir::ModuleOp module,
     // Read data
     float *allocated = reinterpret_cast<float *>(outDesc[0]);
     float *aligned = reinterpret_cast<float *>(outDesc[1]);
+    std::ofstream ofs("output.bin", std::ios::binary);
+    if (ofs) {
+        ofs.write(reinterpret_cast<char*>(aligned), totalOutElements * sizeof(float));
+        ofs.close();
+        llvm::outs() << "Result saved to output.bin\n";
+    }
+
     int64_t offset = outDesc[2];
 
     // Helper to print nested dimensions
@@ -487,7 +516,7 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        // Get input ranks
+        // Get input ranks and shapes
         std::vector<int64_t> inRanks;
         std::vector<std::vector<int64_t>> inShapes;
         for (auto type : mainFunc.getArgumentTypes()) {
@@ -501,7 +530,8 @@ int main(int argc, char **argv) {
         int64_t outRank = outTensorType.getRank();
         std::vector<int64_t> outShape = outTensorType.getShape().vec();
 
-        auto inputDataStore = prepareInputData(inShapes, inputDataList);
+        // Prepare data
+        auto inputDataStore = prepareInputData(inShapes, inputDataList, inputFiles);
 
         if (processMLIR(context, *module)) return 1;
         return runJit(*module, outRank, inRanks, outShape, inShapes, inputDataStore);

@@ -34,10 +34,10 @@ try:
     result = subprocess.check_output([driver_path, "-emit=jit", temp_mlir_path]).decode()
 
     # 5. Parse result using Regex
-    match = re.search(r"Data:\s*([\d\s\.\-eE+]+)", result)
+    match = re.search(r"Data:\s*\[(.*?)\]", result)
 
     if match:
-        actual_data = match.group(1).strip()
+        actual_data = match.group(1).replace(',', ' ').strip()
         actual = np.array([float(x) for x in actual_data.split()], dtype=np.float32)
         
         if np.allclose(actual, expected, atol=1e-5):

@@ -24,10 +24,10 @@ with open("verify_add.mlir", "w") as f: f.write(mlir_template)
 result = subprocess.check_output(["../../build/driver", "-emit=jit", "verify_add.mlir"]).decode()
 
 # 4. Parse result using Regex
-match = re.search(r"Data:\s*([\d\s\.\-eE+]+)", result)
+match = re.search(r"Data:\s*\[(.*?)\]", result)
 
 if match:
-    actual_data = match.group(1).strip()
+    actual_data = match.group(1).replace(',', ' ').strip()
     # Split by any whitespace and convert to floats
     actual = np.array([float(x) for x in actual_data.split()], dtype=np.float32)
     

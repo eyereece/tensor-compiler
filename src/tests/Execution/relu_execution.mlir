@@ -9,4 +9,4 @@ module {
   }
 }
 // CHECK: Result Shape: [ 3 ]
-// CHECK: Data: 1.0{{0*}} 0.0{{0*}} 3.0{{0*}}
+// CHECK: Data: [1.0{{0*}}, 0.0{{0*}}, 3.0{{0*}}]
