@@ -57,6 +57,8 @@
 #include <memory>
 #include <string>
 #include <ostream>
+#include <chrono>
+#include <random>
 
 namespace cl = llvm::cl;
 
@@ -108,6 +110,51 @@ static cl::opt<enum Action>
                 ),
                 cl::init(None));
 
+// Helper function to prepare data
+static std::vector<std::vector<float>> prepareInputData(
+    const std::vector<std::vector<int64_t>>& inShapes,
+    const llvm::cl::list<float>& cliData) {
+
+        size_t totalExpected = 0;
+        for (const auto& shape : inShapes) {
+            int64_t prod = 1;
+            for (int64_t d : shape) prod *= d;
+            totalExpected += prod;
+        }
+
+        // Warning if input != expected
+        if (!cliData.empty() && cliData.size() != totalExpected) {
+            llvm::errs() << "Warning: provided " << cliData.size()
+                        << " elements, but the model expects " << totalExpected << ".\n";
+        }
+
+        std::vector<std::vector<float>> inputDataStore;
+        inputDataStore.reserve(inShapes.size());
+        size_t dataOffset = 0;
+
+        // Use a fixed seed for benchmarking consistency
+        std::mt19937 generator(42);
+        std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+
+        for (const auto& shape : inShapes) {
+            int64_t numElements = 1;
+            for (int64_t dim : shape) numElements *= dim;
+
+            std::vector<float> data;
+            data.reserve(numElements);
+
+            for (int64_t j = 0; j < numElements; ++j) {
+                if (dataOffset < cliData.size()) {
+                    data.push_back(cliData[dataOffset++]);
+                } else {
+                    // AUTO-FILL
+                    data.push_back(distribution(generator));
+                }
+            }
+            inputDataStore.push_back(std::move(data));
+        }
+        return inputDataStore;
+}
 
 static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
     mlir::PassManager pm (&context);
@@ -196,13 +243,14 @@ static int dumpLLVMIR(mlir::ModuleOp module) {
     return 0;
 }
 
+
 // Run JIT
 static int runJit(mlir::ModuleOp module,
                     int64_t outRank,
                     const std::vector<int64_t>& inRanks,
                     const std::vector<int64_t>& outShape,
                     const std::vector<std::vector<int64_t>>& inShapes,
-                    const llvm::cl::list<float>& cliData) {
+                    std::vector<std::vector<float>>& inputDataStore) {
     // Initialize LLVM targets for the host machine
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
@@ -224,26 +272,9 @@ static int runJit(mlir::ModuleOp module,
     }
     auto &engine = maybeEngine.get();
 
-    // Calculate total expected elements across all inputs first
-    size_t totalExpected = 0;
-    for (const auto& shape : inShapes) {
-        int64_t product = 1;
-        for (int64_t dim : shape) product *= dim;
-        totalExpected += product;
-    }
-
-    // Check against the actual input
-    if (totalExpected != cliData.size()) {
-        llvm::errs() << "Warning: provided " << cliData.size()
-                    << " elements, but the model expects " << totalExpected << ".\n";
-    }
-
     // Prepare input data
     std::vector<std::vector<int64_t>> inputDescriptors;
     inputDescriptors.reserve(inRanks.size());
-
-    std::vector<std::vector<float>> inputDataStore; // To keep memory alive
-    inputDataStore.reserve(inRanks.size());
 
     size_t dataOffset = 0;
 
@@ -252,26 +283,12 @@ static int runJit(mlir::ModuleOp module,
         int64_t rank = inRanks[i];
         const auto& shape = inShapes[i];
 
-        int64_t numElements = 1;
-        for (int64_t dim : shape) numElements *= dim;
-
-        // Fill data from CLI or defaults
-        std::vector<float> data;
-        for (int64_t j = 0; j < numElements; ++j) {
-            if (dataOffset < cliData.size()) {
-                data.push_back(cliData[dataOffset++]);
-            } else {
-                data.push_back(0.0f);
-            }
-        }
-        inputDataStore.push_back(std::move(data));
-
         // Build the MemRef Descriptor
         size_t slots = 3 + (2 * rank);
         inputDescriptors.emplace_back(slots, 0);
         auto& desc = inputDescriptors.back();
 
-        desc[0] = reinterpret_cast<int64_t>(inputDataStore.back().data());  // Allocated
+        desc[0] = reinterpret_cast<int64_t>(inputDataStore[i].data());  // Allocated
         desc[1] = desc[0];
         desc[2] = 0;
 
@@ -331,11 +348,18 @@ static int runJit(mlir::ModuleOp module,
         args.push_back(&inputPtrs[i]);
     }
 
+    auto start = std::chrono::high_resolution_clock::now();
+
     // Invoke
     if (engine->invokePacked("_mlir_ciface_main", args)) {
         llvm::errs() << "JIT execution failed\n";
         return -1;
     }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+
+    llvm::outs() << "Execution Time: " << duration.count() << "ms\n";
 
     // Read data
     float *allocated = reinterpret_cast<float *>(outDesc[0]);
@@ -367,11 +391,16 @@ static int runJit(mlir::ModuleOp module,
     }
     llvm::outs() << "]\n";
 
-    llvm::outs() << "Data: ";
-    printRef(printRef, 0, offset);
-    llvm::outs() << "\n";
+    // Only print data if less than 100 elements
+    if (totalOutElements <= 100) {
+        llvm::outs() << "Data: ";
+        printRef(printRef, 0, offset);
+        llvm::outs() << "\n";
+    } else {
+        llvm::outs() << "Data: [Large Tensor - Printing skipped for performance]\n";
+        llvm::outs() << "First Element: " << aligned[offset] << "\n";
+    }
     llvm::outs().flush();
-
     if (allocated && (uintptr_t)allocated != 0xDEADBEEF) free(allocated);
 
     return 0;
@@ -472,8 +501,10 @@ int main(int argc, char **argv) {
         int64_t outRank = outTensorType.getRank();
         std::vector<int64_t> outShape = outTensorType.getShape().vec();
 
+        auto inputDataStore = prepareInputData(inShapes, inputDataList);
+
         if (processMLIR(context, *module)) return 1;
-        return runJit(*module, outRank, inRanks, outShape, inShapes, inputDataList);
+        return runJit(*module, outRank, inRanks, outShape, inShapes, inputDataStore);
     }
     default:
         llvm::errs()
