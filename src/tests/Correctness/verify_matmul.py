@@ -20,7 +20,7 @@ def verify_matmul(onnx_path, m, n, k):
     expected = sess.run(None, {input_names[0]: a, input_names[1]: b})[0]
 
     # Run
-    use_tiling = False
+    use_tiling = True
     stages = ["mlir", "mlir-tensor", "mlir-memref", "mlir-llvm", "llvm", "jit"]
     driver_path = "../../build/driver"
 

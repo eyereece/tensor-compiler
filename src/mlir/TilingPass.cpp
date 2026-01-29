@@ -30,11 +30,15 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
         auto *context = &getContext();
         IRRewriter rewriter(context);
 
-        module.walk([&](TilingInterface op) {
-            // Target only our matmul
-            if (!isa<linalg::MatmulOp>(op.getOperation()))
+        module.walk([&](linalg::GenericOp op) {
+            // only target matmul which has 3 loops
+            if (op.getNumLoops() != 3)
                 return WalkResult::advance();
 
+            // Make sure it's a TilingInterface
+            auto tilingOp = dyn_cast<TilingInterface>(op.getOperation());
+            if (!tilingOp)
+                return WalkResult::advance();;
             
             scf::SCFTilingOptions options;
 
@@ -47,7 +51,7 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
 
             rewriter.setInsertionPointAfter(op);
             FailureOr<scf::SCFTilingResult> TilingResult =
-                scf::tileUsingSCF(rewriter, op, options);
+                scf::tileUsingSCF(rewriter, tilingOp, options);
 
             if (succeeded(TilingResult)) {
                 rewriter.replaceOp(op, TilingResult->replacements);
