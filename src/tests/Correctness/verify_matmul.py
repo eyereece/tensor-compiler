@@ -20,6 +20,7 @@ def verify_matmul(onnx_path, m, n, k):
     expected = sess.run(None, {input_names[0]: a, input_names[1]: b})[0]
 
     # Run
+    use_tiling = False
     stages = ["mlir", "mlir-tensor", "mlir-memref", "mlir-llvm", "llvm", "jit"]
     driver_path = "../../build/driver"
 
@@ -28,6 +29,8 @@ def verify_matmul(onnx_path, m, n, k):
         ir_filename = f"output_{stage}.{ext}"
 
         cmd = [driver_path, onnx_path, f"-emit={stage}", "-input-files=a.bin,b.bin"]
+        if use_tiling:
+            cmd.insert(2, "-tiling")
 
         print(f"Capturing stage: {stage} -> {ir_filename}")
 
@@ -39,8 +42,8 @@ def verify_matmul(onnx_path, m, n, k):
         except subprocess.CalledProcessError as e:
             print(f"Error during stage {stage}: {e.stderr}")
 
-    # print(f"Launching JIT: {' '.join(cmd)}")
-    # subprocess.run(cmd, check=True)
+    print(f"Launching JIT: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
 
     # Load JIT result
     if not os.path.exists("output.bin"):

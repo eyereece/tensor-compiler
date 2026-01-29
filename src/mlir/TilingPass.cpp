@@ -38,11 +38,10 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
             
             scf::SCFTilingOptions options;
 
-            // For 512x512 model, use 32x32 tiles
             SmallVector<OpFoldResult> tileSizes;
             tileSizes.push_back(rewriter.getIndexAttr(32)); // M
             tileSizes.push_back(rewriter.getIndexAttr(32)); // N
-            // tileSizes.push_back(rewriter.getIndexAttr(32)); // K
+            tileSizes.push_back(rewriter.getIndexAttr(32)); // K
 
             options.setTileSizes(tileSizes);
 

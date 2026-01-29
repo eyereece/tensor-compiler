@@ -90,6 +90,12 @@ static cl::opt<std::string> inputFilename(
     cl::value_desc("filename")
 );
 
+static cl::opt<bool> runTiling(
+    "tiling",
+    cl::desc("Enable tiling optimization"),
+    cl::init(false)
+);
+
 namespace {
 enum Action { 
             None,
@@ -190,7 +196,9 @@ static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
         // Lower DLC -> Tensor/Linalg
         pm.addPass(mlir::dlc::createLowerToTensorPass());
 
-        pm.addPass(mlir::dlc::createLinalgTilingPass());
+        if (runTiling) {
+            pm.addPass(mlir::dlc::createLinalgTilingPass());
+        }
         pm.addPass(mlir::createCanonicalizerPass());
         pm.addPass(mlir::createCSEPass());
     }
@@ -385,19 +393,16 @@ static int runJit(mlir::ModuleOp module,
         args.push_back(&inputPtrs[i]);
     }
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start_exec = std::chrono::high_resolution_clock::now();
 
     // Invoke
     if (engine->invokePacked("_mlir_ciface_main", args)) {
         llvm::errs() << "JIT execution failed\n";
         return -1;
     }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> duration = end - start;
-
-    llvm::outs() << "Execution Time: " << duration.count() << "ms\n";
-
+    auto end_exec = std::chrono::high_resolution_clock::now();
+    
+    auto start_io = std::chrono::high_resolution_clock::now();
     // Read data
     float *allocated = reinterpret_cast<float *>(outDesc[0]);
     float *aligned = reinterpret_cast<float *>(outDesc[1]);
@@ -407,6 +412,13 @@ static int runJit(mlir::ModuleOp module,
         ofs.close();
         llvm::outs() << "Result saved to output.bin\n";
     }
+    auto end_io = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double, std::milli> exec_dur = end_exec - start_exec;
+    std::chrono::duration<double, std::milli> io_dur = end_io - start_io;
+
+    llvm::outs() << "Actual Math Time: " << exec_dur.count() << " ms\n";
+    llvm::outs() << "Disk Write Time: " << io_dur.count() << " ms\n";
 
     int64_t offset = outDesc[2];
 
