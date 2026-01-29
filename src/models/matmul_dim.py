@@ -15,4 +15,4 @@ def create_large_matmul(dim):
     onnx.save(model, f'onnx_files/matmul_{dim}.onnx')
     print(f"Created matmul_{dim}.onnx")
 
-create_large_matmul(4096)
+create_large_matmul(512)

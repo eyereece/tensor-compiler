@@ -158,40 +158,59 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
         auto rhsType = cast<RankedTensorType>(rhs.getType());
 
         int64_t M = lhsType.getShape()[0];
+        int64_t K = lhsType.getShape()[1];
         int64_t N = rhsType.getShape()[1];
 
+
+        // TRANSPOSE
+        SmallVector<int64_t> transpShape = {N, K};
+        auto transpInit = tensor::EmptyOp::create(rewriter, loc, transpShape, rhsType.getElementType());
+        SmallVector<int64_t> perm = {1, 0};
+        auto transposedB = linalg::TransposeOp::create(rewriter, loc, rhs, transpInit.getResult(), perm);
+
+        // Setup Result Tensor (C)
         auto resultType = RankedTensorType::get({M, N}, lhsType.getElementType());
-
-        // Create the uninitialized allocation
-        auto emptyTensor = tensor::EmptyOp::create(
-            rewriter,
-            loc,
-            resultType.getShape(),
-            resultType.getElementType()
-        );
-
-        // Create a zero constant for the element type
+        auto emptyC = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(), resultType.getElementType());
         auto zeroAttr = rewriter.getFloatAttr(resultType.getElementType(), 0.0);
         auto zeroConstant = arith::ConstantOp::create(rewriter, loc, zeroAttr);
+        auto fillC = linalg::FillOp::create(rewriter, loc, ValueRange{zeroConstant.getResult()}, ValueRange{emptyC.getResult()});
+        Value initC = fillC.getResult(0);
 
-        // Create the destination tensor for Destination Passing Style (DPS)
-        auto initTensor = linalg::FillOp::create(
-            rewriter,
-            loc,
-            ValueRange{zeroConstant},
-            ValueRange{emptyTensor.getResult()}
-        );
+        // Define Indexing Maps for A[M, K] * B_T[N, K] -> C[M, N]
+        // Map 0 (A):   (m, n, k) -> (m, k)
+        // Map 1 (B_T): (m, n, k) -> (n, k)
+        // Map 2 (C):   (m, n, k) -> (m, n)
+        auto mapA = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(2)}, rewriter.getContext());
+        auto mapB = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(1), rewriter.getAffineDimExpr(2)}, rewriter.getContext());
+        auto mapC = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(1)}, rewriter.getContext());
+        SmallVector<AffineMap> maps = {mapA, mapB, mapC};
 
-        // Lower to linalg.matmul
-        auto matmulOp = linalg::MatmulOp::create(
+        SmallVector<utils::IteratorType> iterTypes = {
+            utils::IteratorType::parallel,  // m
+            utils::IteratorType::parallel,  // n
+            utils::IteratorType::reduction  // k
+        };
+
+        // END TRANSPOSE
+
+        SmallVector<Value> genericInputs = {lhs, transposedB->getResult(0)};
+
+        // Lower to linalg.generic
+        auto genericOp = linalg::GenericOp::create(
             rewriter,
             loc,
             resultType,
-            ValueRange{lhs, rhs},   // ins
-            ValueRange{initTensor.getResult(0)}
+            ValueRange{genericInputs},
+            ValueRange{initC},
+            maps, iterTypes,
+            [&](OpBuilder &b, Location l, ValueRange args) {
+                Value mul = arith::MulFOp::create(b, l, args[0], args[1]);
+                Value add = arith::AddFOp::create(b, l, args[2], mul);
+                linalg::YieldOp::create(b, l, add);
+            }
         );
         
-        Value result = matmulOp.getResult(0);
+        Value result = genericOp.getResult(0);
 
         if (op.getType().getRank() == 1) {
             // Collapse [1, N] -> [N]
