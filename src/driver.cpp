@@ -96,6 +96,12 @@ static cl::opt<bool> runTiling(
     cl::init(false)
 );
 
+static cl::opt<bool> runTranspose(
+    "transpose",
+    cl::desc("Enable B-transpose optimization"),
+    cl::init(false)
+);
+
 namespace {
 enum Action { 
             None,
@@ -194,7 +200,7 @@ static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
     // If the action is DumpMLIRTensor, run the lowering pass
     if (emitAction >= DumpMLIRTensor) {
         // Lower DLC -> Tensor/Linalg
-        pm.addPass(mlir::dlc::createLowerToTensorPass());
+        pm.addPass(mlir::dlc::createLowerToTensorPass(runTranspose));
 
         if (runTiling) {
             pm.addPass(mlir::dlc::createLinalgTilingPass());

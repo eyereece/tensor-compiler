@@ -6,6 +6,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace mlir;
 using namespace mlir::dlc;
@@ -122,10 +123,12 @@ struct ReluOpLowering : public OpConversionPattern<dlc::ReluOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// Pattern: dlc.matmul -> linalg.matmul
+// Pattern: dlc.matmul -> linalg.matmul/linalg.generic
 //===----------------------------------------------------------------------===//
 struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
-    using OpConversionPattern<dlc::MatMulOp>::OpConversionPattern;
+    bool useTransposeB;
+    MatMulOpLowering(MLIRContext *context, bool useTransposeB) :
+        OpConversionPattern<dlc::MatMulOp>(context), useTransposeB(useTransposeB) {}
 
     LogicalResult matchAndRewrite(dlc::MatMulOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const final {
@@ -161,13 +164,6 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
         int64_t K = lhsType.getShape()[1];
         int64_t N = rhsType.getShape()[1];
 
-
-        // TRANSPOSE
-        SmallVector<int64_t> transpShape = {N, K};
-        auto transpInit = tensor::EmptyOp::create(rewriter, loc, transpShape, rhsType.getElementType());
-        SmallVector<int64_t> perm = {1, 0};
-        auto transposedB = linalg::TransposeOp::create(rewriter, loc, rhs, transpInit.getResult(), perm);
-
         // Setup Result Tensor (C)
         auto resultType = RankedTensorType::get({M, N}, lhsType.getElementType());
         auto emptyC = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(), resultType.getElementType());
@@ -176,51 +172,72 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
         auto fillC = linalg::FillOp::create(rewriter, loc, ValueRange{zeroConstant.getResult()}, ValueRange{emptyC.getResult()});
         Value initC = fillC.getResult(0);
 
-        // Define Indexing Maps for A[M, K] * B_T[N, K] -> C[M, N]
-        // Map 0 (A):   (m, n, k) -> (m, k)
-        // Map 1 (B_T): (m, n, k) -> (n, k)
-        // Map 2 (C):   (m, n, k) -> (m, n)
-        auto mapA = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(2)}, rewriter.getContext());
-        auto mapB = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(1), rewriter.getAffineDimExpr(2)}, rewriter.getContext());
-        auto mapC = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(1)}, rewriter.getContext());
-        SmallVector<AffineMap> maps = {mapA, mapB, mapC};
-
-        SmallVector<utils::IteratorType> iterTypes = {
-            utils::IteratorType::parallel,  // m
-            utils::IteratorType::parallel,  // n
-            utils::IteratorType::reduction  // k
-        };
-
-        // END TRANSPOSE
-
-        SmallVector<Value> genericInputs = {lhs, transposedB->getResult(0)};
-
-        // Lower to linalg.generic
-        auto genericOp = linalg::GenericOp::create(
-            rewriter,
-            loc,
-            resultType,
-            ValueRange{genericInputs},
-            ValueRange{initC},
-            maps, iterTypes,
-            [&](OpBuilder &b, Location l, ValueRange args) {
-                Value mul = arith::MulFOp::create(b, l, args[0], args[1]);
-                Value add = arith::AddFOp::create(b, l, args[2], mul);
-                linalg::YieldOp::create(b, l, add);
-            }
-        );
+        Value finalResult;
         
-        Value result = genericOp.getResult(0);
+        if (useTransposeB) {
+            // TRANSPOSE
+            SmallVector<int64_t> transpShape = {N, K};
+            auto transpInit = tensor::EmptyOp::create(rewriter, loc, transpShape, rhsType.getElementType());
+            SmallVector<int64_t> perm = {1, 0};
+            auto transposedB = linalg::TransposeOp::create(rewriter, loc, rhs, transpInit.getResult(), perm);
+       
+            // Define Indexing Maps for A[M, K] * B_T[N, K] -> C[M, N]
+            // Map 0 (A):   (m, n, k) -> (m, k)
+            // Map 1 (B_T): (m, n, k) -> (n, k)
+            // Map 2 (C):   (m, n, k) -> (m, n)
+            auto mapA = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(2)}, rewriter.getContext());
+            auto mapB = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(1), rewriter.getAffineDimExpr(2)}, rewriter.getContext());
+            auto mapC = AffineMap::get(3, 0, {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(1)}, rewriter.getContext());
+            SmallVector<AffineMap> maps = {mapA, mapB, mapC};
+
+            SmallVector<utils::IteratorType> iterTypes = {
+                utils::IteratorType::parallel,  // m
+                utils::IteratorType::parallel,  // n
+                utils::IteratorType::reduction  // k
+            };
+
+            // END TRANSPOSE
+
+            SmallVector<Value> genericInputs = {lhs, transposedB->getResult(0)};
+
+            // Lower to linalg.generic
+            auto genericOp = linalg::GenericOp::create(
+                rewriter,
+                loc,
+                resultType,
+                ValueRange{genericInputs},
+                ValueRange{initC},
+                maps, iterTypes,
+                [&](OpBuilder &b, Location l, ValueRange args) {
+                    Value mul = arith::MulFOp::create(b, l, args[0], args[1]);
+                    Value add = arith::AddFOp::create(b, l, args[2], mul);
+                    linalg::YieldOp::create(b, l, add);
+                }
+            );
+            
+            finalResult = genericOp.getResult(0);
+        } else {
+            // NO TRANSPOSE
+            auto matmulOp = linalg::MatmulOp::create(
+                rewriter,
+                loc,
+                resultType,
+                ValueRange{lhs, rhs},
+                ValueRange{initC}
+            );
+            finalResult = matmulOp.getResult(0);
+        }
+
 
         if (op.getType().getRank() == 1) {
             // Collapse [1, N] -> [N]
             SmallVector<ReassociationIndices> reassoc = {{0, 1}};
-            result = tensor::CollapseShapeOp::create(
-                rewriter, loc, op.getType(), result, reassoc
+            finalResult = tensor::CollapseShapeOp::create(
+                rewriter, loc, op.getType(), finalResult, reassoc
             );
         }
 
-        rewriter.replaceOp(op, result);
+        rewriter.replaceOp(op, finalResult);
         return success();
     }
 };
@@ -232,6 +249,24 @@ struct MatMulOpLowering : public OpConversionPattern<dlc::MatMulOp> {
 struct DlcToTensorLoweringPass
     : public PassWrapper<DlcToTensorLoweringPass, OperationPass<ModuleOp>> {
         MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DlcToTensorLoweringPass)
+
+        // Add a constructor to initialize the option from a bool
+        DlcToTensorLoweringPass() = default;
+        DlcToTensorLoweringPass(const DlcToTensorLoweringPass &other) : PassWrapper(other) {
+            this->useTranspose = other.useTranspose;
+        }
+        DlcToTensorLoweringPass(bool useTransposeVal) {
+            this->useTranspose = useTransposeVal;
+        }
+
+        Option<bool>useTranspose{*this, "transpose-b",
+            llvm::cl::desc("Enable B-transpose for MatMul lowering"),
+            llvm::cl::init(false)};
+
+        // Provide a clone method
+        std::unique_ptr<Pass> clonePass() const override {
+            return std::make_unique<DlcToTensorLoweringPass>(*this);
+        }
 
         void getDependentDialects(DialectRegistry &registry) const override {
             registry.insert<arith::ArithDialect, linalg::LinalgDialect,
@@ -249,7 +284,8 @@ struct DlcToTensorLoweringPass
             target.addIllegalDialect<dlc::DlcDialect>();
 
             RewritePatternSet patterns(&getContext());
-            patterns.add<ConstantOpLowering, AddOpLowering, ReluOpLowering, MatMulOpLowering>(&getContext());
+            patterns.add<ConstantOpLowering, AddOpLowering, ReluOpLowering>(&getContext());
+            patterns.add<MatMulOpLowering>(&getContext(), useTranspose);
 
             if (failed(applyPartialConversion(getOperation(), target, std::move(patterns))))
                 signalPassFailure();
@@ -259,8 +295,8 @@ struct DlcToTensorLoweringPass
 
 namespace mlir {
 namespace dlc {
-std::unique_ptr<Pass> createLowerToTensorPass() {
-    return std::make_unique<DlcToTensorLoweringPass>();
+std::unique_ptr<Pass> createLowerToTensorPass(bool useTranspose) {
+    return std::make_unique<DlcToTensorLoweringPass>(useTranspose);
 }
 }   // namespace dlc
 }   // namespace mlir

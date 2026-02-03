@@ -18,7 +18,7 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
     MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LinalgTilingPass)
 
     void getDependentDialects(DialectRegistry &registry) const override {
-        // You must register these dialects so the pass knows how to create loops/slices
+        // Register dialects so the pass knows how to create loops/slices
         registry.insert<linalg::LinalgDialect, scf::SCFDialect,
                         tensor::TensorDialect, arith::ArithDialect>();
 
@@ -39,6 +39,27 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
             auto tilingOp = dyn_cast<TilingInterface>(op.getOperation());
             if (!tilingOp)
                 return WalkResult::advance();;
+
+            // Get the loop ranges
+            SmallVector<Range> iterationDomain = tilingOp.getIterationDomain(rewriter);
+
+            // Threshold check
+            int64_t minTileSize = 64;
+            bool worthTiling = false;
+
+            for (int i = 0; i < (int)iterationDomain.size(); ++i) {
+                auto constantBound = getConstantIntValue(iterationDomain[i].size);
+
+                // if it's dynamic or large (>64), it's worth tiling
+                if (!constantBound || *constantBound > minTileSize) {
+                    worthTiling = true;
+                    break;
+                }
+            }
+
+            // IF the matrix is tiny, just keep walking
+            if (!worthTiling)
+                return WalkResult::advance();
             
             scf::SCFTilingOptions options;
 

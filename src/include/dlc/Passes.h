@@ -9,7 +9,7 @@ namespace mlir {
 class Pass;
 
 namespace dlc {
-std::unique_ptr<mlir::Pass> createLowerToTensorPass();
+std::unique_ptr<mlir::Pass> createLowerToTensorPass(bool useTranspose=false);
 std::unique_ptr<mlir::Pass> createLowerToLLVMPass();
 std::unique_ptr<mlir::Pass> createLinalgTilingPass();
 }   // namespace dlc
