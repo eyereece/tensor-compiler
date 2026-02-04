@@ -27,59 +27,50 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
 
     void runOnOperation() override {
         auto module = getOperation();
-        auto *context = &getContext();
-        IRRewriter rewriter(context);
+        IRRewriter rewriter(&getContext());
 
         module.walk([&](linalg::GenericOp op) {
-            // only target matmul which has 3 loops
             if (op.getNumLoops() != 3)
                 return WalkResult::advance();
 
-            // Make sure it's a TilingInterface
             auto tilingOp = dyn_cast<TilingInterface>(op.getOperation());
-            if (!tilingOp)
-                return WalkResult::advance();;
+            if (!tilingOp) return WalkResult::advance();
 
-            // Get the loop ranges
             SmallVector<Range> iterationDomain = tilingOp.getIterationDomain(rewriter);
-
-            // Threshold check
             int64_t minTileSize = 64;
             bool worthTiling = false;
 
-            for (int i = 0; i < (int)iterationDomain.size(); ++i) {
-                auto constantBound = getConstantIntValue(iterationDomain[i].size);
-
-                // if it's dynamic or large (>64), it's worth tiling
-                if (!constantBound || *constantBound > minTileSize) {
-                    worthTiling = true;
-                    break;
+            for (auto range : iterationDomain) {
+                if (auto constantBound = getConstantIntValue(range.size)) {
+                    if (*constantBound > minTileSize) {
+                        worthTiling = true;
+                        break;
+                    }
                 }
             }
 
-            // IF the matrix is tiny, just keep walking
             if (!worthTiling)
                 return WalkResult::advance();
-            
+
+            // Tile + Fuse
             scf::SCFTilingOptions options;
+            options.setTileSizes({rewriter.getIndexAttr(64),
+                                rewriter.getIndexAttr(64),
+                                rewriter.getIndexAttr(64)});
 
-            SmallVector<OpFoldResult> tileSizes;
-            tileSizes.push_back(rewriter.getIndexAttr(64)); // M
-            tileSizes.push_back(rewriter.getIndexAttr(64)); // N
-            tileSizes.push_back(rewriter.getIndexAttr(64)); // K
+            // Use simple tileUsingSCF to get 3 loops without aggressive fusion
+            auto tilingResult = scf::tileUsingSCF(rewriter, tilingOp, options);
+            if (failed(tilingResult)) return WalkResult::interrupt();
 
-            options.setTileSizes(tileSizes);
+            Operation* tiledMatmul = tilingResult->tiledOps[0];
+            Value initOperand = tiledMatmul->getOperand(2);     // outs operand
 
-            rewriter.setInsertionPointAfter(op);
-            FailureOr<scf::SCFTilingResult> TilingResult =
-                scf::tileUsingSCF(rewriter, tilingOp, options);
-
-            if (succeeded(TilingResult)) {
-                rewriter.replaceOp(op, TilingResult->replacements);
-                return WalkResult::advance();
+            if (auto fillOp = initOperand.getDefiningOp<linalg::FillOp>()) {
+                fillOp->moveBefore(tilingResult->loops[2]);
             }
 
-            return WalkResult::interrupt();
+            rewriter.replaceOp(op, tilingResult->replacements[0]);
+            return WalkResult::advance();
         });
     }
 };

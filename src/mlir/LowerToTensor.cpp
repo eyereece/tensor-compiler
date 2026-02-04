@@ -40,34 +40,15 @@ struct AddOpLowering : public OpConversionPattern<dlc::AddOp> {
         auto loc = op.getLoc();
         auto resultType = cast<RankedTensorType>(op.getType());
 
-        // Create the destination tensor (required by Linalg on Tensors)
-        auto emptyTensor = tensor::EmptyOp::create(
-            rewriter,
-            loc,
-            resultType.getShape(),
-            resultType.getElementType()
-        );
-
-        // Create zero constant for the element type
-        auto zeroAttr = rewriter.getFloatAttr(resultType.getElementType(), 0.0);
-        auto zeroConstant = arith::ConstantOp::create(rewriter, loc, zeroAttr);
-
-        auto initTensor = linalg::FillOp::create(
-            rewriter,
-            loc,
-            ValueRange{zeroConstant},
-            ValueRange{emptyTensor.getResult()}
-        );
-
+        auto dest = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(), resultType.getElementType());
 
         // Map dlc.add to linalg.add
-        // This handles both Rank-0 (scalar) and Rank-1 (vector) protos.
         auto addOp = linalg::AddOp::create(
             rewriter,
             loc,
-            TypeRange{resultType},                          // Result Types
-            ValueRange{adaptor.getLhs(), adaptor.getRhs()}, // ins
-            ValueRange{initTensor.getResult(0)}                 // outs
+            TypeRange{resultType},                              // Result Types
+            ValueRange{adaptor.getLhs(), adaptor.getRhs()},     // ins
+            ValueRange{dest}                                    // outs
         );
         rewriter.replaceOp(op, addOp->getResults());
         return success();
@@ -85,17 +66,11 @@ struct ReluOpLowering : public OpConversionPattern<dlc::ReluOp> {
         auto loc = op.getLoc();
         auto type = cast<RankedTensorType>(op.getType());
 
-        // Create destination tensor
-        auto initTensor = tensor::EmptyOp::create(
-            rewriter, loc, type.getShape(), type.getElementType()
-        );
-
-        // Define the indexing maps (identity for element-wise)
         auto indexingMap = rewriter.getMultiDimIdentityMap(type.getRank());
-        SmallVector<AffineMap> maps(2, indexingMap);    // one for input, one for output
-
-        // Define iterator types (all parallel for element-wise)
+        SmallVector<AffineMap> maps(2, indexingMap);
         SmallVector<utils::IteratorType> iterators(type.getRank(), utils::IteratorType::parallel);
+
+        auto dest = tensor::EmptyOp::create(rewriter, loc, type.getShape(), type.getElementType());
 
         // Create linalg.generic op
         auto reluGeneric = linalg::GenericOp::create(
@@ -103,7 +78,7 @@ struct ReluOpLowering : public OpConversionPattern<dlc::ReluOp> {
             loc,
             type,
             /*inputs=*/adaptor.getInput(),
-            /*outputs=*/initTensor.getResult(),
+            /*outputs=*/ValueRange{dest},
             maps,
             iterators,
             [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {

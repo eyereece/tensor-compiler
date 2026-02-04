@@ -102,6 +102,12 @@ static cl::opt<bool> runTranspose(
     cl::init(false)
 );
 
+static cl::opt<bool> runOpFusion(
+    "op-fusion",
+    cl::desc("enable op fusion"),
+    cl::init(false)
+);
+
 namespace {
 enum Action { 
             None,
@@ -201,6 +207,8 @@ static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
     if (emitAction >= DumpMLIRTensor) {
         // Lower DLC -> Tensor/Linalg
         pm.addPass(mlir::dlc::createLowerToTensorPass(runTranspose));
+        pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(mlir::createCSEPass());
 
         if (runTiling) {
             pm.addPass(mlir::dlc::createLinalgTilingPass());
