@@ -28,50 +28,62 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
     void runOnOperation() override {
         auto module = getOperation();
         IRRewriter rewriter(&getContext());
+        
+        SmallVector<TilingInterface> targets;
+        module.walk([&](TilingInterface op) {
+            if (auto genericOp = dyn_cast<linalg::GenericOp>(op.getOperation())) {
+                if (genericOp.getNumLoops() == 2) targets.push_back(op);
+            }
+        });
+        
+        for (TilingInterface consumer : targets) {
+            scf::SCFTileAndFuseOptions fuseOptions;
+            scf::SCFTilingOptions tilingOptions;
+            
+            tilingOptions.setTileSizes({rewriter.getIndexAttr(64), 
+                                        rewriter.getIndexAttr(64)});
+            
+            fuseOptions.setFusionControlFn([](tensor::ExtractSliceOp candidateSliceOp, 
+                                              OpResult originalProducer, 
+                                              bool isDestination) 
+                                              -> std::optional<scf::SCFTileAndFuseOptions::ControlFnResult> {
+                if (isa<linalg::TransposeOp>(originalProducer.getOwner()))
+                    return std::nullopt;
+                    
+                return scf::SCFTileAndFuseOptions::ControlFnResult{};
+            });
 
-        module.walk([&](linalg::GenericOp op) {
-            if (op.getNumLoops() != 3)
-                return WalkResult::advance();
+            fuseOptions.setTilingOptions(tilingOptions);
+            rewriter.setInsertionPoint(consumer);
+            
+            auto result = scf::tileConsumerAndFuseProducersUsingSCF(rewriter, consumer, fuseOptions);
 
-            auto tilingOp = dyn_cast<TilingInterface>(op.getOperation());
-            if (!tilingOp) return WalkResult::advance();
-
-            SmallVector<Range> iterationDomain = tilingOp.getIterationDomain(rewriter);
-            int64_t minTileSize = 64;
-            bool worthTiling = false;
-
-            for (auto range : iterationDomain) {
-                if (auto constantBound = getConstantIntValue(range.size)) {
-                    if (*constantBound > minTileSize) {
-                        worthTiling = true;
-                        break;
+            if (succeeded(result)) {
+                for (Operation *tiledOp : result->tiledAndFusedOps) {
+                    auto tilingInterfaceOp = dyn_cast<TilingInterface>(tiledOp);
+                    if (tilingInterfaceOp && tiledOp->getNumOperands() > 1) { 
+                        if (auto gen = dyn_cast<linalg::GenericOp>(tiledOp)) {
+                            if (gen.getNumLoops() == 3) {
+                                scf::SCFTilingOptions kOptions;
+                                kOptions.setTileSizes({rewriter.getIndexAttr(0), 
+                                                       rewriter.getIndexAttr(0), 
+                                                       rewriter.getIndexAttr(64)});
+                                
+                                rewriter.setInsertionPoint(tiledOp);
+                                
+                                // FIX: Wrap in (void) or check the result to silence [[nodiscard]] warning
+                                (void)scf::tileUsingSCF(rewriter, tilingInterfaceOp, kOptions);
+                            }
+                        }
                     }
                 }
+
+                for (const auto &it : result->replacements) {
+                    rewriter.replaceAllUsesWith(it.first, it.second);
+                }
+                rewriter.eraseOp(consumer);
             }
-
-            if (!worthTiling)
-                return WalkResult::advance();
-
-            // Tile + Fuse
-            scf::SCFTilingOptions options;
-            options.setTileSizes({rewriter.getIndexAttr(64),
-                                rewriter.getIndexAttr(64),
-                                rewriter.getIndexAttr(64)});
-
-            // Use simple tileUsingSCF to get 3 loops without aggressive fusion
-            auto tilingResult = scf::tileUsingSCF(rewriter, tilingOp, options);
-            if (failed(tilingResult)) return WalkResult::interrupt();
-
-            Operation* tiledMatmul = tilingResult->tiledOps[0];
-            Value initOperand = tiledMatmul->getOperand(2);     // outs operand
-
-            if (auto fillOp = initOperand.getDefiningOp<linalg::FillOp>()) {
-                fillOp->moveBefore(tilingResult->loops[2]);
-            }
-
-            rewriter.replaceOp(op, tilingResult->replacements[0]);
-            return WalkResult::advance();
-        });
+        }
     }
 };
 }   // namespace
