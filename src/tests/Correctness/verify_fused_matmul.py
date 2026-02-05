@@ -29,9 +29,9 @@ def verify_fused_matmul(onnx_path, m, n, k):
 
     # Configs
     configs = [
-        {"label": "transposed_fused", "tiling": False, "transpose": True, "op-fusion": False, "active": False},
-        {"label": "transposed", "tiling": False, "transpose": True, "op-fusion": False, "active": True},
-        {"label": "tiled_fused_transposed", "tiling": True, "transpose": True, "op-fusion": False, "active": True}
+        {"label": "naive", "tiling": False, "transpose": False, "active": True},
+        {"label": "transposed", "tiling": False, "transpose": True, "active": True},
+        {"label": "tiled_fused_transposed", "tiling": True, "transpose": True, "active": True}
     ]
 
     performance_results = {}
@@ -52,7 +52,6 @@ def verify_fused_matmul(onnx_path, m, n, k):
         common_flags = []
         if cfg.get("tiling"): common_flags.append("-tiling")
         if cfg.get("transpose"): common_flags.append("-transpose")
-        if cfg.get("op-fusion"): common_flags.append("-op-fusion")
 
         # Capture IR for all stages
         for stage in stages:
@@ -70,10 +69,26 @@ def verify_fused_matmul(onnx_path, m, n, k):
             except subprocess.CalledProcessError as e:
                 print(f"Error during stage{stage}: {e.stderr}")
 
-        # Run JIT
+        # Run JIT (regular)
         print(f"Launching JIT for {prefix}")
         jit_cmd = [driver_path, onnx_path, "-emit=jit", input_files_arg] + common_flags
         jit_proc = subprocess.run(jit_cmd, capture_output=True, text=True, check=True)
+
+        # Run JIT (with Valgrind)
+        # print(f"Launching JIT (with Cachegrind) for {prefix}")
+        # cache_out_file = f"cachegrind_{prefix}.out"
+        # valgrind_prefix = [
+        #     "valgrind",
+        #     "--tool=cachegrind",
+        #     f"--cachegrind-out-file={cache_out_file}",
+        #     # --CacheLevel=notActualSize(actualsize),Associativity,LineSize
+        #     "--I1=131072,8,128",     # Instruction L1: 128KB (192KB), 8-way, 128B line
+        #     "--D1=131072,8,128",     # Data L1: 128KB, 8-way, 128B line
+        #     "--LL=16777216,16,128"   # Last Level (L2): 16MB (12MB), 12-way, 128B line
+        # ]
+
+        # jit_cmd = valgrind_prefix + [driver_path, onnx_path, "-emit=jit", input_files_arg] + common_flags
+        # jit_proc = subprocess.run(jit_cmd, capture_output=True, text=True)
 
         # Parse Math Time from output
         for line in jit_proc.stdout.split('\n'):
@@ -115,4 +130,4 @@ def verify_fused_matmul(onnx_path, m, n, k):
     for label, timing in performance_results.items():
         print(f"{label}: {timing}")
 
-verify_fused_matmul("../../models/onnx_files/fused_matmul_2048.onnx", 2048, 2048, 2048)
+verify_fused_matmul("../../models/onnx_files/fused_matmul_512.onnx", 512, 512, 512)
