@@ -471,7 +471,7 @@ static int runJit(mlir::ModuleOp module,
         llvm::outs() << "First Element: " << aligned[offset] << "\n";
     }
     llvm::outs().flush();
-    if (allocated && (uintptr_t)allocated != 0xDEADBEEF) free(allocated);
+    if (allocated) free(allocated);
 
     return 0;
 }
