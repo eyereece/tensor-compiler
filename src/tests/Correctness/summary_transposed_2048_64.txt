@@ -1,0 +1,25 @@
+--------------------------------------------------------------------------------
+I1 cache:         131072 B, 128 B, 8-way associative
+D1 cache:         131072 B, 128 B, 8-way associative
+LL cache:         16777216 B, 128 B, 16-way associative
+Command:          ../../build/driver ../../models/onnx_files/fused_matmul_2048.onnx -emit=jit -input-files=a.bin,b.bin,bias.bin -transpose
+Data file:        cachegrind_transposed.out
+Events recorded:  Ir I1mr ILmr Dr D1mr DLmr Dw D1mw DLmw
+Events shown:     Ir I1mr ILmr Dr D1mr DLmr Dw D1mw DLmw
+Event sort order: Ir I1mr ILmr Dr D1mr DLmr Dw D1mw DLmw
+Thresholds:       0.1 100 100 100 100 100 100 100 100
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                      I1mr             ILmr            Dr                      D1mr                 DLmr               Dw                     D1mw             DLmw             
+--------------------------------------------------------------------------------
+77,815,879,465 (100.0%) 568,957 (100.0%) 79,370 (100.0%) 17,320,311,385 (100.0%) 273,548,121 (100.0%) 5,166,288 (100.0%) 8,675,632,221 (100.0%) 876,709 (100.0%) 830,736 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      I1mr           ILmr           Dr                      D1mr                 DLmr               Dw                     D1mw             DLmw              file:function
+--------------------------------------------------------------------------------
+77,491,494,132 (99.58%) 5,591 ( 0.98%)   644 ( 0.81%) 17,201,266,585 (99.31%) 273,289,915 (99.91%) 5,108,400 (98.88%) 8,619,326,858 (99.35%) 393,291 (44.86%) 393,285 (47.34%)  ???:???
+   125,829,138 ( 0.16%)     1 ( 0.00%)     0              62,914,557 ( 0.36%)           0                  0             25,165,830 ( 0.29%) 393,216 (44.85%) 393,216 (47.33%)  ???:__gnu_cxx::__enable_if<std::__is_scalar<float>::__value, void>::__type std::__fill_a1<float*, float>(float*, float*, float const&)
+

@@ -1,9 +1,13 @@
 #loc = loc(unknown)
 module {
-  func.func @main(%arg0: tensor<4096x4096xf32> loc(unknown), %arg1: tensor<4096x4096xf32> loc(unknown)) -> tensor<4096x4096xf32> attributes {llvm.emit_c_interface} {
-    %0 = "dlc.matmul"(%arg0, %arg1) : (tensor<4096x4096xf32>, tensor<4096x4096xf32>) -> tensor<4096x4096xf32> loc(#loc1)
-    return %0 : tensor<4096x4096xf32> loc(#loc1)
+  func.func @main(%arg0: tensor<2048x2048xf32> loc(unknown), %arg1: tensor<2048x2048xf32> loc(unknown), %arg2: tensor<2048x2048xf32> loc(unknown)) -> tensor<2048x2048xf32> attributes {llvm.emit_c_interface} {
+    %0 = "dlc.matmul"(%arg0, %arg1) : (tensor<2048x2048xf32>, tensor<2048x2048xf32>) -> tensor<2048x2048xf32> loc(#loc1)
+    %1 = "dlc.add"(%0, %arg2) : (tensor<2048x2048xf32>, tensor<2048x2048xf32>) -> tensor<2048x2048xf32> loc(#loc2)
+    %2 = dlc.relu %1 : tensor<2048x2048xf32> loc(#loc3)
+    return %2 : tensor<2048x2048xf32> loc(#loc3)
   } loc(#loc)
 } loc(#loc)
-#loc1 = loc("Z")
+#loc1 = loc("matmul_out")
+#loc2 = loc("add_out")
+#loc3 = loc("Output")
 

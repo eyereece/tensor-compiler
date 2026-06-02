@@ -110,4 +110,4 @@ def verify_matmul(onnx_path, m, n, k):
     for label, timing in performance_results.items():
         print(f"{label}: {timing}")
 
-verify_matmul("../../models/onnx_files/matmul_4096.onnx", 4096, 4096, 4096)
+verify_matmul("../../models/onnx_files/matmul_2048.onnx", 2048, 2048, 2048)
