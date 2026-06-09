@@ -223,11 +223,14 @@ static int processMLIR(mlir::MLIRContext &context, mlir::ModuleOp module) {
 
         mlir::bufferization::OneShotBufferizePassOptions passOptions;
 
-        passOptions.allowReturnAllocsFromLoops = true;
+        passOptions.allowReturnAllocsFromLoops = false;
         passOptions.bufferizeFunctionBoundaries = true;
 
         pm.addPass(mlir::bufferization::createOneShotBufferizePass(passOptions));
         pm.addPass(mlir::bufferization::createBufferDeallocationSimplificationPass());
+
+        pm.addPass(mlir::createCanonicalizerPass()); 
+        pm.addPass(mlir::createCSEPass());
 
         pm.addPass(mlir::createConvertLinalgToLoopsPass());
         pm.addPass(mlir::createCanonicalizerPass());

@@ -29,68 +29,43 @@ struct LinalgTilingPass : public PassWrapper<LinalgTilingPass, OperationPass<Mod
         auto module = getOperation();
         IRRewriter rewriter(&getContext());
         
+        // Target matmul
         SmallVector<TilingInterface> targets;
         module.walk([&](TilingInterface op) {
             // Find the ReLU/Add (the 2D consumer)
             if (auto genericOp = dyn_cast<linalg::GenericOp>(op.getOperation())) {
-                if (genericOp.getNumLoops() == 2) targets.push_back(op);
+                if (!genericOp) return;
+                if (genericOp.getNumLoops() == 3 && genericOp.getNumReductionLoops() == 1)
+                    targets.push_back(op);
             }
+
         });
-        
-        for (TilingInterface consumer : targets) {
-            scf::SCFTileAndFuseOptions fuseOptions;
-            scf::SCFTilingOptions tilingOptions;
-            
-            // Tile M and N (Spatial dimensions)
-            tilingOptions.setTileSizes({rewriter.getIndexAttr(64), 
-                                        rewriter.getIndexAttr(64)});
-            
-            fuseOptions.setFusionControlFn([](tensor::ExtractSliceOp candidateSliceOp, 
-                                              OpResult originalProducer, 
-                                              bool isDestination) 
-                                              -> std::optional<scf::SCFTileAndFuseOptions::ControlFnResult> {
-                if (isa<linalg::TransposeOp>(originalProducer.getOwner()))
-                    return std::nullopt;
-                return scf::SCFTileAndFuseOptions::ControlFnResult{};
+
+        // Tile matmul
+        for (auto target : targets) {
+            scf::SCFTilingOptions options;
+
+            options.setTileSizes({
+                rewriter.getIndexAttr(64),
+                rewriter.getIndexAttr(64),
+                rewriter.getIndexAttr(64)
             });
 
-            fuseOptions.setTilingOptions(tilingOptions);
-            rewriter.setInsertionPoint(consumer);
-            
-            auto result = scf::tileConsumerAndFuseProducersUsingSCF(rewriter, consumer, fuseOptions);
+            rewriter.setInsertionPoint(target);
 
-            if (succeeded(result)) {
-                // Find the fused MatMul inside the new loops and tile K
-                for (Operation *tiledOp : result->tiledAndFusedOps) {
-                    auto tilingInterfaceOp = dyn_cast<TilingInterface>(tiledOp);
-                    if (!tilingInterfaceOp) continue;
+            auto result = 
+                scf::tileUsingSCF(
+                    rewriter,
+                    target,
+                    options
+                );
 
-                    if (auto gen = dyn_cast<linalg::GenericOp>(tiledOp)) {
-                        if (gen.getNumLoops() == 3) {
-                            // Once MatMul is found, tile the Reduction (K) dim
-                            scf::SCFTilingOptions kOptions;
-                            kOptions.setTileSizes({rewriter.getIndexAttr(0), 
-                                                   rewriter.getIndexAttr(0), 
-                                                   rewriter.getIndexAttr(64)});
-                            
-                            rewriter.setInsertionPoint(tiledOp);
-                            auto kResult = scf::tileUsingSCF(rewriter, tilingInterfaceOp, kOptions);
-                            
-                            if (succeeded(kResult)) {
-                                // Replace the MatMul uses with the results of the K-tiling
-                                // to make sure that the loop chain is maintained.
-                                rewriter.replaceOp(tiledOp, kResult->replacements);
-                            }
-                        }
-                    }
-                }
+            if (failed(result)) continue;
 
-                // Replace the original consumer uses
-                for (const auto &it : result->replacements) {
-                    rewriter.replaceAllUsesWith(it.first, it.second);
-                }
-                rewriter.eraseOp(consumer);
-            }
+            rewriter.replaceOp(
+                target.getOperation(),
+                result->replacements
+            );
         }
     }
 };
