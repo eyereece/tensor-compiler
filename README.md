@@ -24,6 +24,15 @@ Key Transformation:
 - Backend: Performs Bufferization to map tensors to physical memory (MemRef) before final lowering to the LLVM backend for JIT execution
 
 
+### Implementation Deep Dive
+---
+I have written a series of articles on the implementation details of the project available here:
+1. Building my first MLIR-based Tensor Compiler
+2. Building a minimal MLIR Pipeline from ONNX to LLVM JIT
+3. Implementing Linear Layers and Memory Optimizations on MLIR
+4. Performance Analysis and Testing
+
+
 ### Demo Outputs
 ---
 Sample Output when running an ONNX matmul through python script:
@@ -153,12 +162,3 @@ valgrind --tool=cachegrind ./driver path/to/model.onnx -emit=jit
 # You can also run from the python script: deep-learning-compiler/src/tests/Correctness/verify_tiled_matmul.py
 # Make sure to update the configs based on your processor's cache size
 ```
-
-
-### Implementation Deep Dive
----
-I have written a series of articles on the implementation details of the project available here:
-1. Building my first MLIR-based Tensor Compiler
-2. Building a minimal MLIR Pipeline from ONNX to LLVM JIT
-3. Implementing Linear Layers and Memory Optimizations on MLIR
-4. Performance Analysis and Testing
