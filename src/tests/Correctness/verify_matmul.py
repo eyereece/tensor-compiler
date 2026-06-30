@@ -25,7 +25,7 @@ def verify_matmul(onnx_path, m, n, k):
 
     # Configs to compare
     configs = [
-        {"label": "standard", "tiling": True, "transpose": False, "active": False},
+        {"label": "standard", "tiling": True, "transpose": False, "active": True},
         {"label": "transposed", "tiling": True, "transpose": True, "active": True}
     ]
 
@@ -110,4 +110,4 @@ def verify_matmul(onnx_path, m, n, k):
     for label, timing in performance_results.items():
         print(f"{label}: {timing}")
 
-verify_matmul("../../models/onnx_files/matmul_2048.onnx", 2048, 2048, 2048)
+verify_matmul("../../models/onnx_files/matmul_512.onnx", 512, 512, 512)
