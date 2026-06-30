@@ -1,6 +1,6 @@
 # Tensor Compiler
 
-This is my implementation of a minimal Tensor compiler built with MLIR. I implemented a lowering pipeline starting from an ONNX graph down to LLVM IR, and executes via JIT compilation. The following is the highlight of the performance on a 2048 x 2048 matrix multiplication workload on an ARM CPU (M1 Pro 2021)
+This is my implementation of a minimal tensor compiler built with MLIR. It supports a subset of ONNX operations (Constant, Add, Relu, and MatMul) and implements a lowering pipeline from an ONNX graph through MLIR to LLVM IR, with execution via JIT compilation. The following highlights the performance of a 2048 x 2048 matrix multiplication workload on an Apple M1 Pro (2021)
 
 | Metric | Naïve / Baseline | Transposed | Transposed + Tiled |
 | :--- | :---: | :---: | :---: |
@@ -73,6 +73,14 @@ mkdir -p build
 cd build
 cmake ..
 make
+```
+
+Accepted Inputs:
+```
+- ONNX models
+- Supported operations: Constant, Add, Relu, MatMul
+- Add supports scalar, 1D, and 2D tensors
+- MatMul supports 1D and 2D tensors
 ```
 
 To run (in the build folder):
