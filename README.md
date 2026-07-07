@@ -27,10 +27,10 @@ Key Transformation:
 ### Implementation Deep Dive
 ---
 I have written a series of articles on the implementation details of the project available here:
-1. Building my first MLIR-based Tensor Compiler
-2. Building a minimal MLIR Pipeline from ONNX to LLVM JIT
-3. Implementing Linear Layers and Memory Optimizations on MLIR
-4. Performance Analysis and Testing
+1. [Building my first MLIR-based Tensor Compiler](https://www.joankusuma.com/post/building-my-first-mlir-based-tensor-compiler)
+2. [Building a minimal MLIR Pipeline from ONNX to LLVM JIT](https://www.joankusuma.com/post/building-a-minimal-mlir-pipeline-from-onnx-to-llvm-jit)
+3. [Implementing Linear Layers and Memory Optimizations on MLIR](https://www.joankusuma.com/post/implementing-linear-layers-and-memory-optimizations-on-mlir)
+4. [Performance Analysis and Testing](https://www.joankusuma.com/post/performance-analysis-and-testing)
 
 
 ### Demo Outputs
