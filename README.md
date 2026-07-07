@@ -87,7 +87,7 @@ To ensure IR correctness and correct error handling, I implemented tests using L
 ### Codebase Directory
 ---
 ```
-deep-learning-compiler
+tensor-compiler
 ├── src/
 │   ├── include/dlc                 # ops.td and header files
 │   ├── mlir/                       # lowering passes
@@ -111,7 +111,7 @@ To run with Docker, build with the Dockerfile provided and then clone the projec
 
 ##### Step #1:
 
-Run cmake in deep-learning-compiler/src:
+Run cmake in tensor-compiler/src:
 ```
 mkdir -p build
 cd build
@@ -129,7 +129,7 @@ Accepted Inputs:
 ```
 
 
-To run: go to deep-learning-compiler/src/build
+To run: go to tensor-compiler/src/build
 ```
 ./driver -emit=<FLAG> path/to/model
 # Some examples to get started
@@ -162,6 +162,6 @@ Run Valgrind for cache analysis (Running with Valgrind will take longer):
 # Run inside build dir
 valgrind --tool=cachegrind ./driver path/to/model.onnx -emit=jit
 
-# You can also run from the python script: deep-learning-compiler/src/tests/Correctness/verify_tiled_matmul.py
+# You can also run from the python script: tensor-compiler/src/tests/Correctness/verify_tiled_matmul.py
 # Make sure to update the configs based on your processor's cache size
 ```
