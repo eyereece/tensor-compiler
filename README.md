@@ -129,18 +129,21 @@ Accepted Inputs:
 ```
 
 
-To run (in the build folder):
+To run: go to deep-learning-compiler/src/build
 ```
 ./driver -emit=<FLAG> path/to/model
-# for example
+# Some examples to get started
 ./driver -emit=proto ../models/onnx_files/add_constant.onnx
+./driver -emit=mlir ../models/onnx_files/add_constant_1.onnx
+./driver -emit=mlir-tensor ../models/onnx_files/add_const_init.onnx
+./driver ../models/onnx_files/add_const_init.onnx -emit=jit -input-data=5.5,4.5
 
 # available flags:
 # proto, mlir, mlir-tensor, mlir-memref, mlir-llvm, llvm, jit
 ```
 
 
-Use a script to run large matrices, the following python script is available to run MxM matrices:
+You can also use a script to run large matrices, the following python script is available to run MxM matrices:
 
 go to src/tests/Correctness
 ```
@@ -154,7 +157,7 @@ Testing (run from build dir, make sure to run from the correct dir):
 ../../../llvm-project/build/bin/llvm-lit -v ../tests/
 ```
 
-Run Valgrind for cache analysis:
+Run Valgrind for cache analysis (Running with Valgrind will take longer):
 ```
 # Run inside build dir
 valgrind --tool=cachegrind ./driver path/to/model.onnx -emit=jit
